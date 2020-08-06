@@ -77,7 +77,7 @@ class EdgeMinibatchIterator(object):
         return np.any(rows_close)
 
     def mask_test_edges(self, edge_type, type_idx):
-        # TODO: Mek faster
+        # TODO: Make faster
         edges_all, _, _ = preprocessing.sparse_to_tuple(self.adj_mats[edge_type][type_idx])
         num_test = max(50, int(np.floor(edges_all.shape[0] * self.val_test_size)))
         num_val = max(50, int(np.floor(edges_all.shape[0] * self.val_test_size)))
@@ -93,31 +93,35 @@ class EdgeMinibatchIterator(object):
 
         train_edges = np.delete(edges_all, np.hstack([test_edge_idx, val_edge_idx]), axis=0)
 
-        test_edges_false = [] # negative samples
-        while len(test_edges_false) < len(test_edges):
-            if len(test_edges_false) % 1000 == 0:
-                print("Constructing test edges=", "%04d/%04d" % (len(test_edges_false), len(test_edges)))
-            idx_i = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[0])
-            idx_j = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[1])
-            if self._ismember([idx_i, idx_j], edges_all):
-                continue
-            if test_edges_false:
-                if self._ismember([idx_i, idx_j], test_edges_false):
-                    continue
-            test_edges_false.append([idx_i, idx_j])
-
-        val_edges_false = []
-        while len(val_edges_false) < len(val_edges):
-            if len(val_edges_false) % 1000 == 0:
-                print("Constructing val edges=", "%04d/%04d" % (len(val_edges_false), len(val_edges)))
-            idx_i = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[0])
-            idx_j = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[1])
-            if self._ismember([idx_i, idx_j], edges_all):
-                continue
-            if val_edges_false:
-                if self._ismember([idx_i, idx_j], val_edges_false):
-                    continue
-            val_edges_false.append([idx_i, idx_j])
+        argwhere_res = np.argwhere(np.logical_not(self.adj_mats[edge_type][type_idx].data))
+        zero_count = len(argwhere_res)
+        zeros_to_pick = len(test_edges) + len(val_edges)
+        ids = np.random.choice(range(zero_count), size=(zeros_to_pick,))
+        res = argwhere_res[ids]
+        test_edges_false = res[:len(test_edges)] # negative samples
+        val_edges_false = res[len(test_edges):]
+        # while len(test_edges_false) < len(test_edges):
+        #     idx_i = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[0])
+        #     idx_j = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[1])
+        #     if self._ismember([idx_i, idx_j], edges_all):
+        #         continue
+        #     if test_edges_false:
+        #         if self._ismember([idx_i, idx_j], test_edges_false):
+        #             continue
+        #     test_edges_false.append([idx_i, idx_j])
+        #
+        # val_edges_false = []
+        # while len(val_edges_false) < len(val_edges):
+        #     if len(val_edges_false) % 1000 == 0:
+        #         print("Constructing val edges=", "%04d/%04d" % (len(val_edges_false), len(val_edges)))
+        #     idx_i = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[0])
+        #     idx_j = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[1])
+        #     if self._ismember([idx_i, idx_j], edges_all):
+        #         continue
+        #     if val_edges_false:
+        #         if self._ismember([idx_i, idx_j], val_edges_false):
+        #             continue
+        #     val_edges_false.append([idx_i, idx_j])
 
         # Re-build adj matrices
         data = np.ones(train_edges.shape[0])

@@ -350,12 +350,17 @@ if __name__ == '__main__':
     ###########################################################
 
     print("Create minibatch iterator")
+    path_to_split = f'data/split/{val_test_size}'
+    need_sample_edges = not (os.path.isdir(path_to_split) and
+                             len(os.listdir(path_to_split)) == 6)
     minibatch = EdgeMinibatchIterator(
         adj_mats=adj_mats_orig,
         feat=feat,
         edge_types=edge_types,
         batch_size=FLAGS.batch_size,
-        val_test_size=val_test_size
+        val_test_size=val_test_size,
+        path_to_split=path_to_split,
+        need_sample_edges=need_sample_edges
     )
 
     print("Create model")

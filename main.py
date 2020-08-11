@@ -20,6 +20,7 @@ from decagon.deep.model import DecagonModel
 from decagon.deep.minibatch import EdgeMinibatchIterator
 from decagon.utility import rank_metrics, preprocessing
 from utils import *
+from adj_matrix import create_combo_adj, create_adj_matrix
 
 # Train on CPU (hide GPU) due to memory constraints
 os.environ['CUDA_VISIBLE_DEVICES'] = ""
@@ -172,6 +173,7 @@ if __name__ == '__main__':
     val_test_size = 0.1
     n_genes = gene_net.number_of_nodes()
     gene_adj = nx.adjacency_matrix(gene_net)
+    # Number of connections for each gene
     gene_degrees = np.array(gene_adj.sum(axis=0)).squeeze()
 
     ordered_list_of_drugs = list(drug_drug_net.nodes.keys())
@@ -180,55 +182,20 @@ if __name__ == '__main__':
 
     n_drugs = len(ordered_list_of_drugs)
 
-    drug_gene_adj = sp.lil_matrix(np.zeros((n_drugs, n_genes)))
-    for drug in stitch2proteins:
-        for protein in stitch2proteins[drug]:
-            # there are quite a few drugs in here that aren't in our list of 645,
-            # and proteins that aren't in our list of 19081
-            if drug in ordered_list_of_drugs and protein in ordered_list_of_proteins:
-                drug_index = ordered_list_of_drugs.index(drug)
-                gene_index = ordered_list_of_proteins.index(protein)
-                drug_gene_adj[drug_index, gene_index] = 1
-
-    drug_gene_adj = drug_gene_adj.tocsr()
-
     # needs to be drug vs. gene matrix (645x19081)
+    drug_gene_adj = create_adj_matrix(
+        a_item2b_item=stitch2proteins,
+        ordered_list_a_item=ordered_list_of_drugs,
+        ordered_list_b_item=ordered_list_of_proteins)
     gene_drug_adj = drug_gene_adj.transpose(copy=True)
 
-    drug_drug_adj_list = []
     # TODO: Made better checkout (adjacency matrix can be partly saved from previous run
     if not os.path.isfile("adjacency_matrices/sparse_matrix0000.npz"):
-        # pre-initialize all the matrices
-        print("Initializing drug-drug adjacency matrix list")
-
-        n = len(ordered_list_of_side_effects)
-        for i in range(n):
-            drug_drug_adj_list.append(
-                sp.lil_matrix(np.zeros((n_drugs, n_drugs))))
-            if verbose:
-                print("%s percent done" % str(100.0 * i / n))
-        print("Creating adjacency matrices for side effects")
-        combo_count = len(combo2se)
-        combo_counter = 0
-
-        # for side_effect_type in ordered_list_of_side_effects:
-        # for drug1, drug2 in combinations(list(range(n_drugs)), 2):
-
-        for combo in combo2se.keys():
-            side_effect_list = combo2se[combo]
-            for present_side_effect in side_effect_list:
-                # find the matrix we need to update
-                side_effect_number = ordered_list_of_side_effects.index(
-                    present_side_effect)
-                # find the drugs for which we need to make the update
-                drug_tuple = combo2stitch[combo]
-                drug1_index = ordered_list_of_drugs.index(drug_tuple[0])
-                drug2_index = ordered_list_of_drugs.index(drug_tuple[1])
-                # update
-                drug_drug_adj_list[side_effect_number][
-                    drug1_index, drug2_index] = 1
-
-            combo_counter = combo_counter + 1
+        drug_drug_adj_list = create_combo_adj(
+            combo_a_item2b_item=combo2se,
+            combo_a_item2a_item=combo2stitch,
+            ordered_list_a_item=ordered_list_of_drugs,
+            ordered_list_b_item=ordered_list_of_side_effects)
 
         print("Saving matrices to file")
         # save matrices to file
@@ -238,15 +205,13 @@ if __name__ == '__main__':
             sp.save_npz('adjacency_matrices/sparse_matrix%04d.npz' % (i,),
                         drug_drug_adj_list[i].tocoo())
     else:
+        drug_drug_adj_list = []
         print("Loading adjacency matrices from file.")
         for i in range(len(ordered_list_of_side_effects)):
             drug_drug_adj_list.append(
-                sp.load_npz('adjacency_matrices/sparse_matrix%04d.npz' % i))
-
-    for i in range(len(drug_drug_adj_list)):
-        drug_drug_adj_list[i] = drug_drug_adj_list[i].tocsr()
-
-
+                sp.load_npz('adjacency_matrices' +
+                            f'/sparse_matrix%04d.npz' % i).tocsr())
+    # Number of connections for each drug
     drug_degrees_list = [np.array(drug_adj.sum(axis=0)).squeeze() for drug_adj
                          in drug_drug_adj_list]
 
@@ -272,14 +237,14 @@ if __name__ == '__main__':
 
     # data representation
     adj_mats_orig = {
-        (0, 0): [gene_adj, gene_adj.transpose(copy=True)],
+        (0, 0): [gene_adj],
         (0, 1): [gene_drug_adj],
         (1, 0): [drug_gene_adj],
-        (1, 1): drug_drug_adj_list + [x.transpose(copy=True) for x in drug_drug_adj_list],
+        (1, 1): drug_drug_adj_list,
     }
     degrees = {
-        0: [gene_degrees, gene_degrees],
-        1: drug_degrees_list + drug_degrees_list,
+        0: [gene_degrees],
+        1: drug_degrees_list,
     }
 
     # featureless (genes)

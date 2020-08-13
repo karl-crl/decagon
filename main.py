@@ -179,6 +179,7 @@ if __name__ == '__main__':
     ordered_list_of_drugs = list(drug_drug_net.nodes.keys())
     ordered_list_of_side_effects = list(se2name.keys())
     ordered_list_of_proteins = list(gene_net.nodes.keys())
+    ordered_list_of_se_mono = list(se2name_mono.keys())
 
     n_drugs = len(ordered_list_of_drugs)
 
@@ -253,7 +254,15 @@ if __name__ == '__main__':
     gene_feat = preprocessing.sparse_to_tuple(gene_feat.tocoo())
 
     # features (drugs)
-    drug_feat = sp.identity(n_drugs)
+    se_mono2idx = dict(zip(ordered_list_of_se_mono,
+                           range(len(ordered_list_of_se_mono))))
+    # Create sparse matrix with rows -- genes features.
+    # Gene feature -- binary vector with length = num of mono se.
+    # feature[i] = 1 <=> gene has ith mono se
+    drug_feat = create_adj_matrix(
+        a_item2b_item=stitch2se,
+        ordered_list_a_item=ordered_list_of_drugs,
+        ordered_list_b_item=ordered_list_of_se_mono)
     drug_nonzero_feat, drug_num_feat = drug_feat.shape
     drug_feat = preprocessing.sparse_to_tuple(drug_feat.tocoo())
 

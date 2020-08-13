@@ -7,6 +7,7 @@ from typing import List
 
 import numpy as np
 import scipy.sparse as sp
+import os
 
 from ..utility import preprocessing
 
@@ -20,9 +21,8 @@ class EdgeMinibatchIterator(object):
     placeholders -- tensorflow placeholders object
     batch_size -- size of the minibatches
     """
-
-    def __init__(self, adj_mats, feat, edge_types, batch_size=100,
-                 val_test_size=0.01):
+    def __init__(self, adj_mats, feat, edge_types, path_to_split,
+                 batch_size=100, val_test_size=0.01, need_sample_edges=False):
         self.adj_mats = adj_mats
         self.feat = feat
         self.edge_types = edge_types
@@ -42,17 +42,30 @@ class EdgeMinibatchIterator(object):
                 self.edge_type2idx[i, j, k] = r
                 self.idx2edge_type[r] = i, j, k
                 r += 1
-
-        self.train_edges = {edge_type: [None] * n for edge_type, n in
-                            self.edge_types.items()}
-        self.val_edges = {edge_type: [None] * n for edge_type, n in
-                          self.edge_types.items()}
-        self.test_edges = {edge_type: [None] * n for edge_type, n in
-                           self.edge_types.items()}
-        self.test_edges_false = {edge_type: [None] * n for edge_type, n in
-                                 self.edge_types.items()}
-        self.val_edges_false = {edge_type: [None] * n for edge_type, n in
-                                self.edge_types.items()}
+        if not need_sample_edges:
+            print(f'Loading edges from {path_to_split}')
+            self.train_edges = np.load(f'{path_to_split}/train_edges.npy',
+                                       allow_pickle=True).item()
+            self.val_edges = np.load(f'{path_to_split}/val_edges.npy',
+                                     allow_pickle=True).item()
+            self.test_edges = np.load(f'{path_to_split}/test_edges.npy',
+                                      allow_pickle=True).item()
+            self.test_edges_false = np.load(f'{path_to_split}/' +
+                                            f'test_edges_false.npy',
+                                            allow_pickle=True).item()
+            self.val_edges_false = np.load(f'{path_to_split}/' +
+                                            f'val_edges_false.npy',
+                                           allow_pickle=True).item()
+            # Function to build test and val sets with val_test_size positive links
+            self.adj_train = np.load(f'{path_to_split}/' +
+                                     f'adj_train.npy',
+                                     allow_pickle=True).item()
+            return
+        self.train_edges = {edge_type: [None]*n for edge_type, n in self.edge_types.items()}
+        self.val_edges = {edge_type: [None]*n for edge_type, n in self.edge_types.items()}
+        self.test_edges = {edge_type: [None]*n for edge_type, n in self.edge_types.items()}
+        self.test_edges_false = {edge_type: [None]*n for edge_type, n in self.edge_types.items()}
+        self.val_edges_false = {edge_type: [None]*n for edge_type, n in self.edge_types.items()}
 
         # Function to build test and val sets with val_test_size positive links
         self.adj_train = {edge_type: [None] * n for edge_type, n in
@@ -62,10 +75,17 @@ class EdgeMinibatchIterator(object):
             for k in range(self.edge_types[i, j]):
                 print("Minibatch edge type:", "(%d, %d, %d)" % (i, j, k))
                 self.mask_test_edges((i, j), k)
-
-                print("Train edges=", "%04d" % len(self.train_edges[i, j][k]))
-                print("Val edges=", "%04d" % len(self.val_edges[i, j][k]))
-                print("Test edges=", "%04d" % len(self.test_edges[i, j][k]))
+                print("Train edges=", "%04d" % len(self.train_edges[i,j][k]))
+                print("Val edges=", "%04d" % len(self.val_edges[i,j][k]))
+                print("Test edges=", "%04d" % len(self.test_edges[i,j][k]))
+        if not os.path.isdir(path_to_split):
+            os.makedirs(path_to_split)
+        np.save(f'{path_to_split}/train_edges.npy', self.train_edges)
+        np.save(f'{path_to_split}/val_edges.npy', self.val_edges)
+        np.save(f'{path_to_split}/test_edges.npy', self.test_edges)
+        np.save(f'{path_to_split}/test_edges_false.npy', self.test_edges_false)
+        np.save(f'{path_to_split}/val_edges_false.npy', self.val_edges_false)
+        np.save(f'{path_to_split}/adj_train.npy', self.adj_train)
 
     def preprocess_graph(self, adj):
         adj = sp.coo_matrix(adj)

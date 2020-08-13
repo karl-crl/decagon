@@ -107,8 +107,7 @@ def load_mono_se(mono_path:str='bio-decagon-mono.csv') -> Tuple[dict, dict]:
     return stitch2se, se2name
 
 
-def load_targets(targets_path: str = 'bio-decagon-targets.csv') -> \
-        Tuple[nx.Graph, dict]:
+def load_targets(targets_path: str = 'bio-decagon-targets.csv') -> dict:
     """
 
     Parameters
@@ -117,8 +116,8 @@ def load_targets(targets_path: str = 'bio-decagon-targets.csv') -> \
 
     Returns
     -------
-        1. drug-target network
-        2. dictionary from Stitch ID to set of drug targets
+    dictionary 
+        from Stitch ID to set of drug targets
 
     """
     print(f'Reading: {targets_path}')
@@ -129,13 +128,7 @@ def load_targets(targets_path: str = 'bio-decagon-targets.csv') -> \
     for stitch, gene in target_df[['STITCH', 'Gene']].values:
         stitch2proteins[stitch].add(gene)
 
-    #drug-target network
-    net = nx.Graph(list(target_df[['STITCH', 'Gene']].values))
-    net.remove_nodes_from(nx.isolates(net))
-    net.remove_edges_from(list(nx.selfloop_edges(net)))
-    print(f'Edges: {len(net.edges)}')
-    print(f'Nodes: {len(net.nodes)}')
-    return net, stitch2proteins
+    return stitch2proteins
 
 
 def load_categories(se_categories_path:str=

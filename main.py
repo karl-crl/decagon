@@ -10,8 +10,6 @@ import os
 import neptune
 import tensorflow as tf
 import numpy as np
-import networkx as nx
-import pandas as pd
 import scipy.sparse as sp
 from sklearn import metrics
 
@@ -32,7 +30,7 @@ tf.compat.v1.disable_eager_execution()
 # Train on GPU
 # os.environ["CUDA_DEVICE_ORDER"] = 'PCI_BUS_ID'
 # os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-# config = tf.ConfigProto()
+# config = tf.compat.v1.ConfigProto()
 # config.gpu_options.allow_growth = True
 
 np.random.seed(0)
@@ -402,12 +400,14 @@ if __name__ == '__main__':
                       "train_loss=", "{:.5f}".format(train_cost),
                       "val_roc=", "{:.5f}".format(val_auc), "val_auprc=", "{:.5f}".format(val_auprc),
                       "val_apk=", "{:.5f}".format(val_apk), "time=", "{:.5f}".format(time.time() - t))
+                neptune.log_metric("val_roc", val_auc, timestamp=time.time())
+                neptune.log_metric("val_apk", val_apk, timestamp=time.time())
+                neptune.log_metric("val_auprc", val_auprc,
+                                   timestamp=time.time())
+                neptune.log_metric("train_loss", train_cost,
+                                   timestamp=time.time())
 
             itr += 1
-            neptune.log_metric("val_roc", val_auc, timestamp=time.time())
-            neptune.log_metric("val_apk", val_apk, timestamp=time.time())
-            neptune.log_metric("val_auprc", val_auprc, timestamp=time.time())
-            neptune.log_metric("train_loss", train_cost, timestamp=time.time())
 
     print("Optimization finished!")
 

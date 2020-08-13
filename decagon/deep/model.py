@@ -50,13 +50,13 @@ class DecagonModel(Model):
         self.num_edge_types = sum(self.edge_types.values())
         self.num_obj_types = max([i for i, _ in self.edge_types]) + 1
         self.decoders = decoders
-        self.inputs = {i: placeholders['feat_%d' % i] for i, _ in self.edge_types}
+        self.inputs = {i: placeholders[f'feat_{i}'] for i, _ in self.edge_types}
         self.input_dim = num_feat
         self.nonzero_feat = nonzero_feat
         self.placeholders = placeholders
         self.dropout = placeholders['dropout']
         self.adj_mats = {et: [
-            placeholders['adj_mats_%d,%d,%d' % (et[0], et[1], k)] for k in range(n)]
+            placeholders[f'adj_mats_{et[0]},{et[1]},{k}'] for k in range(n)]
             for et, n in self.edge_types.items()}
         self.build()
 
@@ -121,14 +121,14 @@ class DecagonModel(Model):
                     glb = tf.eye(PARAMS['hidden2'], PARAMS['hidden2'])
                     loc = tf.eye(PARAMS['hidden2'], PARAMS['hidden2'])
                 elif decoder == 'distmult':
-                    glb = tf.linalg.tensor_diag(self.edge_type2decoder[edge_type].vars['relation_%d' % k])
+                    glb = tf.linalg.tensor_diag(self.edge_type2decoder[edge_type].vars[f'relation_{k}'])
                     loc = tf.eye(PARAMS['hidden2'], PARAMS['hidden2'])
                 elif decoder == 'bilinear':
-                    glb = self.edge_type2decoder[edge_type].vars['relation_%d' % k]
+                    glb = self.edge_type2decoder[edge_type].vars[f'relation_{k}']
                     loc = tf.eye(PARAMS['hidden2'], PARAMS['hidden2'])
                 elif decoder == 'dedicom':
                     glb = self.edge_type2decoder[edge_type].vars['global_interaction']
-                    loc = tf.linalg.tensor_diag(self.edge_type2decoder[edge_type].vars['local_variation_%d' % k])
+                    loc = tf.linalg.tensor_diag(self.edge_type2decoder[edge_type].vars[f'local_variation_{k}'])
                 else:
                     raise ValueError('Unknown decoder type')
 

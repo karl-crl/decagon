@@ -73,11 +73,11 @@ class EdgeMinibatchIterator(object):
         # TODO: Parallel to make faster
         for i, j in self.edge_types:
             for k in range(self.edge_types[i, j]):
-                print("Minibatch edge type:", "(%d, %d, %d)" % (i, j, k))
+                print("Minibatch edge type:", f"({i}, {j}, {k})" % (i, j, k))
                 self.mask_test_edges((i, j), k)
-                print("Train edges=", "%04d" % len(self.train_edges[i,j][k]))
-                print("Val edges=", "%04d" % len(self.val_edges[i,j][k]))
-                print("Test edges=", "%04d" % len(self.test_edges[i,j][k]))
+                print("Train edges=", f"{len(self.train_edges[i,j][k]):.4f}")
+                print("Val edges=", f"{len(self.val_edges[i,j][k]):.4f}")
+                print("Test edges=", f"{len(self.test_edges[i,j][k]):.4f}")
         if not os.path.isdir(path_to_split):
             os.makedirs(path_to_split)
         np.save(f'{path_to_split}/train_edges.npy', self.train_edges)
@@ -217,37 +217,11 @@ class EdgeMinibatchIterator(object):
                                 np.hstack([test_edge_idx, val_edge_idx]),
                                 axis=0)
 
-        # argwhere_res = np.argwhere(
-        #     np.logical_not(self.adj_mats[edge_type][type_idx].data))
-        # zero_count = len(argwhere_res)
         zeros_to_pick = len(test_edges) + len(val_edges)
-        # ids = np.random.choice(range(zero_count), size=(zeros_to_pick,))
         res = self._negative_sampling(self.adj_mats[edge_type][type_idx],
                                       zeros_to_pick)
         test_edges_false = res[:len(test_edges)]  # negative samples
         val_edges_false = res[len(test_edges):]
-        # while len(test_edges_false) < len(test_edges):
-        #     idx_i = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[0])
-        #     idx_j = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[1])
-        #     if self._ismember([idx_i, idx_j], edges_all):
-        #         continue
-        #     if test_edges_false:
-        #         if self._ismember([idx_i, idx_j], test_edges_false):
-        #             continue
-        #     test_edges_false.append([idx_i, idx_j])
-        #
-        # val_edges_false = []
-        # while len(val_edges_false) < len(val_edges):
-        #     if len(val_edges_false) % 1000 == 0:
-        #         print("Constructing val edges=", "%04d/%04d" % (len(val_edges_false), len(val_edges)))
-        #     idx_i = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[0])
-        #     idx_j = np.random.randint(0, self.adj_mats[edge_type][type_idx].shape[1])
-        #     if self._ismember([idx_i, idx_j], edges_all):
-        #         continue
-        #     if val_edges_false:
-        #         if self._ismember([idx_i, idx_j], val_edges_false):
-        #             continue
-        #     val_edges_false.append([idx_i, idx_j])
 
         # Re-build adj matrices
         data = np.ones(train_edges.shape[0])
@@ -269,10 +243,10 @@ class EdgeMinibatchIterator(object):
     def update_feed_dict(self, feed_dict, dropout, placeholders):
         # construct feed dictionary
         feed_dict.update({
-            placeholders['adj_mats_%d,%d,%d' % (i, j, k)]: self.adj_train[i, j][
+            placeholders[f'adj_mats_{i},{j},{k}']: self.adj_train[i, j][
                 k]
             for i, j in self.edge_types for k in range(self.edge_types[i, j])})
-        feed_dict.update({placeholders['feat_%d' % i]: self.feat[i] for i, _ in
+        feed_dict.update({placeholders[f'feat_{i}']: self.feat[i] for i, _ in
                           self.edge_types})
         feed_dict.update({placeholders['dropout']: dropout})
 

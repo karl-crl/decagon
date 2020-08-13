@@ -7,6 +7,7 @@ from itertools import combinations
 import time
 import os
 
+import neptune
 import tensorflow as tf
 import numpy as np
 import networkx as nx
@@ -22,6 +23,7 @@ from decagon.utility import rank_metrics, preprocessing
 from utils import *
 from adj_matrix import create_combo_adj, create_adj_matrix
 
+neptune.init('Pollutants/sandbox')
 # Train on CPU (hide GPU) due to memory constraints
 os.environ['CUDA_VISIBLE_DEVICES'] = ""
 
@@ -216,27 +218,8 @@ if __name__ == '__main__':
     drug_degrees_list = [np.array(drug_adj.sum(axis=0)).squeeze() for drug_adj
                          in drug_drug_adj_list]
 
-###########################
-    # gene_net = nx.planted_partition_graph(50, 10, 0.2, 0.05, seed=42)
-    #
-    # gene_adj = nx.adjacency_matrix(gene_net)
-    # gene_degrees = np.array(gene_adj.sum(axis=0)).squeeze()
-    #
-    # gene_drug_adj = sp.csr_matrix((10 * np.random.randn(n_genes, n_drugs) > 15).astype(int))
-    # drug_gene_adj = gene_drug_adj.transpose(copy=True)
-    #
-    # drug_drug_adj_list = []
-    # tmp = np.dot(drug_gene_adj, gene_drug_adj)
-    # for i in range(n_drugdrug_rel_types):
-    #     mat = np.zeros((n_drugs, n_drugs))
-    #     for d1, d2 in combinations(list(range(n_drugs)), 2):
-    #         if tmp[d1, d2] == i + 4:
-    #             mat[d1, d2] = mat[d2, d1] = 1.
-    #     drug_drug_adj_list.append(sp.csr_matrix(mat))
-    # drug_degrees_list = [np.array(drug_adj.sum(axis=0)).squeeze() for drug_adj in drug_drug_adj_list]
 
 
-    # data representation
     adj_mats_orig = {
         (0, 0): [gene_adj],
         (0, 1): [gene_drug_adj],
@@ -310,6 +293,25 @@ if __name__ == '__main__':
     flags.DEFINE_float('max_margin', 0.1, 'Max margin parameter in hinge loss')
     flags.DEFINE_integer('batch_size', 512, 'minibatch size.')
     flags.DEFINE_boolean('bias', True, 'Bias term.')
+
+    PARAMS = {'neg_sample_size': 1,
+              'learning_rate': 0.001,
+              'epochs': 50,
+              'hidden1': 64,
+              'hidden2': 32,
+              'weight_decay': 0,
+              'dropout': 0.1,
+              'max_margin': 0.1,
+              'batch_size': 512,
+              'bias': True}
+
+    neptune.create_experiment(name='example_with_parameters',
+                              params=PARAMS,
+                              upload_stdout=True,
+                              upload_stderr=True,
+                              send_hardware_metrics=True,
+                              upload_source_files='**/*.py')
+    neptune.set_property("val_test_size", val_test_size)
     # Important -- Do not evaluate/print validation performance every iteration as it can take
     # substantial amount of time
     PRINT_PROGRESS_EVERY = 150
@@ -402,6 +404,10 @@ if __name__ == '__main__':
                       "val_apk=", "{:.5f}".format(val_apk), "time=", "{:.5f}".format(time.time() - t))
 
             itr += 1
+            neptune.log_metric("val_roc", val_auc, timestamp=time.time())
+            neptune.log_metric("val_apk", val_apk, timestamp=time.time())
+            neptune.log_metric("val_auprc", val_auprc, timestamp=time.time())
+            neptune.log_metric("train_loss", train_cost, timestamp=time.time())
 
     print("Optimization finished!")
 
@@ -413,3 +419,7 @@ if __name__ == '__main__':
         print("Edge type:", "%04d" % et, "Test AUPRC score", "{:.5f}".format(auprc_score))
         print("Edge type:", "%04d" % et, "Test AP@k score", "{:.5f}".format(apk_score))
         print()
+        neptune.log_metric("ROC-AUC", roc_score)
+        neptune.log_metric("AUPRC", auprc_score)
+        neptune.log_metric("AP@k score", apk_score)
+    neptune.stop()

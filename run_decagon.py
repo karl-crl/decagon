@@ -1,13 +1,15 @@
 import os
-from utils import *
-from adj_matrix import create_combo_adj, create_adj_matrix
 import numpy as np
 import scipy.sparse as sp
-import pandas as pd
-from decagon.utility import preprocessing
+from decagon.utility import rank_metrics, preprocessing
 from decagon.deep.optimizer import DecagonOptimizer
 from decagon.deep.model import DecagonModel
 from decagon.deep.minibatch import EdgeMinibatchIterator
+import tensorflow as tf
+from typing import Dict
+import time
+from sklearn import metrics
+from operator import itemgetter
 
 
 
@@ -15,215 +17,380 @@ class RunDecagon:
     """
     Attributes
     ----------
-    drug_drug_net: nx.Graph
-        drugs as nodes, se as edges.
-    combo2stich: Dict[str, np.array]
-        from drugs combo name to np.array of two their names.
-    combo2se: Dict[str, set]
-        from drugs combo name to set of common se of two drugs.
-    se2name: Dict[str, str]
-        from common se (key) to its real name.
-    gene_net: nx.Graph
-        genes (proteins) as nodes, protein-protein-interactions as edges
-    node2idx: Dict[int, int]
-        from gene ID (entrez) to its number
-    stitch2se: Dict[str, set]
-        from drug (individual) stitch id to a set of its se IDs
-    se2name_mono: Dict[str, str]
-        from individual se ID to its real name
-    stitch2proteins: Dict[[str, set]
-        from stitch ids (drug) to protein (gene) ids
-
-    ordered_list_of_drugs: List[str]
-        ID of all drugs in mega graph
-    ordered_list_of_se: List[str]
-        ID of all se in mega graph
-    ordered_list_of_proteins: List[int]
-        Entrez ID of all genes in mega graph
-    self.ordered_list_of_se_mono: List[str]
-        ID of all individual  se in drugs embeddings
-
     adj_mats: Dict[Tuple[int, int], List[sp.csr_matrix]]
-        from edge type to list of adjacency matrices for each edge class
-        (e.g. (1, 1): list of drug-drug adjacency matrices for each se class)
-        In our case all matrix in adj_mats are symmetric
     degrees: Dict[int, List[int]]
-        number of connections for each node (0: genes, 1: drugs)
-
     edge_type2dim: Dict[Tuple[int, int], List[int]
-        from edge type to list of shapes all its adjacency matrices.
     edge_type2decoder: Dict[Tuple[int, int], str]
-        from edge type to decoder type
-        (we use different decompositions for different edges types)
     edge_types: Dict[Tuple[int, int], int]
-        from edge type to number of classes of these edge type
-        (e. g. (1, 1): number of se)
     num_edge_types: int
-        number of all edge types (considering all classes)
-
     num_feat: Dict[int, int]
-        number of elements in feature vector for 0: -genes and for 1: -drugs.
     nonzero_feat: Dict[int, int]
-        number of all features for 0: -gene and 1: -drug nodes.
-        All features should be nonzero!
-        e.g., it is in format 0: num of genes in graph, 1: num of drugs.
     feat: Dict[int, sp.csr_matrix]
-        from edge type (0 = gene, 1 = drug) to feature matrix.
-        row in featire matrix = embedding of one node.
 
-
-
+    minibatch: EdgeMinibatchIterator
+    placeholders: Dict[str, tf.compat.v1.placeholder]
+    model: DecagonModel
+    opt: DecagonOptimizer
     """
 
-    def __init__(self, combo_path: str, ppi_path: str, mono_path: str,
-                 targets_path: str, min_se_freq: int):
-        frequent_combo_path = self._leave_frequent_se(combo_path, min_se_freq)
-        self.drug_drug_net, self.combo2stitch, self.combo2se, self.se2name = \
-            load_combo_se(combo_path=frequent_combo_path)
-        self.gene_net, self.node2idx = load_ppi(ppi_path=ppi_path)
-        self.stitch2se, self.se2name_mono = load_mono_se(mono_path=mono_path)
-        self.stitch2proteins = load_targets(targets_path=targets_path)
+    def __init__(self):
+        pass
 
-        self.ordered_list_of_drugs = list(self.drug_drug_net.nodes.keys())
-        self.ordered_list_of_se = list(self.se2name.keys())
-        self.ordered_list_of_proteins = list(self.gene_net.nodes.keys())
-        self.ordered_list_of_se_mono = list(self.se2name_mono.keys())
-
-    @staticmethod
-    def _leave_frequent_se(combo_path: str, min_se_freq: int) -> str:
+    def _adjacency(self, adj_path: str) -> None:
         """
-        Create pre-processed file that only has frequent side effects
+        Create self.adj_mats, self.degrees
         Parameters
         ----------
-        min_se_freq: int
-            Only se with frequency >= min_se_freq will be saved.
+        adj_path: str
+            path for saving/loading adjacency matrices
 
         Returns
         -------
-        str
-            path to combo data considering only frequent se.
+
+        Notes
+        -----
+        self.adj_mats: Dict[Tuple[int, int], List[sp.csr_matrix]]
+            from edge type to list of adjacency matrices for each edge class
+            (e.g. (1, 1): list of drug-drug adjacency matrices for each se class)
+            In our case all matrix in adj_mats are symmetric
+        self.degrees: Dict[int, List[int]]
+            number of connections for each node (0: genes, 1: drugs)
+
         """
-        all_combo_df = pd.read_csv(combo_path)
-        se_freqs = all_combo_df["Polypharmacy Side Effect"].value_counts()
-        frequent_se = se_freqs[se_freqs >= min_se_freq].index.tolist()
-        frequent_combo_df = all_combo_df[
-            all_combo_df["Polypharmacy Side Effect"].isin(frequent_se)]
+        raise NotImplementedError()
 
-        filename, file_extension = os.path.splitext(combo_path)
-        frequent_combo_path = filename + '-freq-only' + file_extension
-        frequent_combo_df.to_csv(frequent_combo_path, index=False)
-        return frequent_combo_path
+    def _nodes_features(self) -> None:
+        """
+        Create self.num_feat, self.nonzero_feat, self.feat.
 
-    def _adjacency(self, adj_path: str) -> None:
-        gene_gene_adj = nx.adjacency_matrix(self.gene_net)
-        # Number of connections for each gene
-        gene_degrees = np.array(gene_gene_adj.sum(axis=0)).squeeze()
+        Returns
+        -------
 
-        drug_gene_adj = create_adj_matrix(
-            a_item2b_item=self.stitch2proteins,
-            ordered_list_a_item=self.ordered_list_of_drugs,
-            ordered_list_b_item=self.ordered_list_of_proteins)
+        Notes
+        -----
+        One-hot encoding as genes features.
+        Binary vectors with presence of different side effects as drugs features
+        self.num_feat: Dict[int, int]
+            number of elements in feature vector for 0: -genes, for 1: -drugs.
+        self.nonzero_feat: Dict[int, int]
+            number of all features for 0: -gene and 1: -drug nodes.
+            All features should be nonzero! ????????????
+            TODO: What to do with zero features??
+            e.g., it is in format 0: num of genes in graph, 1: num of drugs.
+        self.feat: Dict[int, sp.csr_matrix]
+            from edge type (0 = gene, 1 = drug) to feature matrix.
+            row in feature matrix = embedding of one node.
+        """
+        raise NotImplementedError()
 
-        gene_drug_adj = drug_gene_adj.transpose(copy=True)
+    def _edge_types_info(self) -> None:
+        """
+        Create self.edge_type2dim, self.edge_type2decoder, self.edge_types,
+        self.num_edge_types
+        Returns
+        -------
 
-        num_se = len(self.ordered_list_of_se)
-        if not os.path.isdir(adj_path):
-            os.mkdir(adj_path)
-        drug_drug_adj_list = []
-        try:
-            print("Try to load drug-drug adjacency matrices from file.")
-            if len(os.listdir(adj_path)) < num_se:
-                raise IOError('Not all drug-drug adjacency matrices are saved')
-            for i in range(num_se):
-                drug_drug_adj_list[i].append(sp.load_npz(
-                    adj_path + '/sparse_matrix%04d.npz' % i).tocsr())
-        except IOError:
-            print('Calculate drug-drug adjacency matrices')
-            drug_drug_adj_list = create_combo_adj(
-                combo_a_item2b_item=self.combo2se,
-                combo_a_item2a_item=self.combo2stitch,
-                ordered_list_a_item=self.ordered_list_of_drugs,
-                ordered_list_b_item=self.ordered_list_of_se)
-            print("Saving matrices to file")
-            for i in range(len(drug_drug_adj_list)):
-                sp.save_npz('adjacency_matrices/sparse_matrix%04d.npz' % (i,),
-                            drug_drug_adj_list[i].tocoo())
-        # Number of connections for each drug
-        drug_degrees_list = [np.array(drug_adj.sum(axis=0)).squeeze()
-                             for drug_adj in drug_drug_adj_list]
-        self.adj_mats = {
-            (0, 0): [gene_gene_adj],
-            (0, 1): [gene_drug_adj],
-            (1, 0): [drug_gene_adj],
-            (1, 1): drug_drug_adj_list,
-        }
-        self.degrees = {
-            0: [gene_degrees],
-            1: drug_degrees_list,
+        Notes
+        -----
+        self.edge_type2dim: Dict[Tuple[int, int], List[int]
+            from edge type to list of shapes all its adjacency matrices.
+        self.edge_type2decoder: Dict[Tuple[int, int], str]
+            from edge type to decoder type
+            (we use different decompositions for different edges types)
+        self.edge_types: Dict[Tuple[int, int], int]
+            from edge type to number of classes of these edge type
+            (e. g. (1, 1): number of se)
+        self.num_edge_types: int
+            number of all edge types (considering all classes)
+
+        """
+        self.edge_type2dim = {k: [adj.shape for adj in adjs] for k, adjs in
+                              self.adj_mats.items()}
+        self.edge_type2decoder = {
+            (0, 0): 'bilinear',
+            (0, 1): 'bilinear',
+            (1, 0): 'bilinear',
+            (1, 1): 'dedicom',
         }
 
-        def _nodes_features(self) -> None:
-            # One-hot for genes
-            n_genes = self.gene_net.number_of_nodes()
-            gene_feat = sp.identity(n_genes)
-            gene_nonzero_feat, gene_num_feat = gene_feat.shape
-            # TODO: check this function
-            gene_feat = preprocessing.sparse_to_tuple(gene_feat.tocoo())
+        self.edge_types = {k: len(v) for k, v in self.adj_mats.items()}
+        self.num_edge_types = sum(self.edge_types.values())
+        print(f'Edge types {self.num_edge_types}')
 
-            # Create sparse matrix with rows -- genes features.
-            # Gene feature -- binary vector with length = num of mono se.
-            # feature[i] = 1 <=> gene has ith mono se
-            drug_feat = create_adj_matrix(
-                a_item2b_item=self.stitch2se,
-                ordered_list_a_item=self.ordered_list_of_drugs,
-                ordered_list_b_item=self.ordered_list_of_se_mono)
-            # Check if some gene has zero embedding (i.e. it has no frequent se)
-            assert 0 not in drug_feat.getnnz(axis=1), \
-                'All genes should have nonzero embeddings! '
-            drug_nonzero_feat, drug_num_feat = drug_feat.shape
-            drug_feat = preprocessing.sparse_to_tuple(drug_feat.tocoo())
+    def _minibatch_iterator_init(self, path_to_split: str, batch_size: int,
+                                 val_test_size: float) -> None:
+        """
+        Create minibatch iterator (self.minibatch)
+        Parameters
+        ----------
+        path_to_split: str
+            path to save train, test and validate edges.
+            If it consist needed edges, they will be loaded.
+            Else they will be calculated and saved.
+        batch_size: int
+            Minibatch size.
+        val_test_size: float
+            proportion to split edges into train, test and validate.
 
-            self.num_feat = {
-                0: gene_num_feat,
-                1: drug_num_feat,
-            }
-            self.nonzero_feat = {
-                0: gene_nonzero_feat,
-                1: drug_nonzero_feat,
-            }
-            self.feat = {
-                0: gene_feat,
-                1: drug_feat,
-            }
+        Returns
+        -------
 
-        def _edge_types_info(self) -> None:
-            self.edge_type2dim = {k: [adj.shape for adj in adjs] for k, adjs in
-                             self.adj_mats.items()}
-            self.edge_type2decoder = {
-                (0, 0): 'bilinear',
-                (0, 1): 'bilinear',
-                (1, 0): 'bilinear',
-                (1, 1): 'dedicom',
-            }
+        """
+        print('Create minibatch iterator')
+        need_sample_edges = not (os.path.isdir(path_to_split) and
+                                 len(os.listdir(path_to_split)) == 6)
+        self.minibatch = EdgeMinibatchIterator(
+            adj_mats=self.adj_mats,
+            feat=self.feat,
+            edge_types=self.edge_types,
+            batch_size=batch_size,
+            val_test_size=val_test_size,
+            path_to_split=path_to_split,
+            need_sample_edges=need_sample_edges
+        )
 
-            self.edge_types = {k: len(v) for k, v in self.adj_mats.items()}
-            self.num_edge_types = sum(self.edge_types.values())
-            print(f'Edge types {self.num_edge_types}')
+    def _construct_placeholders(self) -> None:
+        """
+        Create self.placeholders.
 
-        def _minibatch_iterator_init(self, path_to_split: str, batch_size: int,
-                                     val_test_size: float):
-            print('Create minibatch iterator')
-            need_sample_edges = not (os.path.isdir(path_to_split) and
-                                     len(os.listdir(path_to_split)) == 6)
-            self.minibatch = EdgeMinibatchIterator(
-                adj_mats=self.adj_mats,
-                feat=self.feat,
+        Returns
+        -------
+
+        Notes
+        _____
+        Placeholders - input data in tf1.
+        """
+        print("Defining placeholders")
+        self.placeholders = {
+            'batch': tf.compat.v1.placeholder(tf.int32, name='batch'),
+            'batch_edge_type_idx':
+                tf.compat.v1.placeholder(tf.int32, shape=(),
+                                         name='batch_edge_type_idx'),
+            'batch_row_edge_type':
+                tf.compat.v1.placeholder(tf.int32, shape=(),
+                                         name='batch_row_edge_type'),
+            'batch_col_edge_type':
+                tf.compat.v1.placeholder(tf.int32, shape=(),
+                                         name='batch_col_edge_type'),
+            'degrees': tf.compat.v1.placeholder(tf.int32),
+            'dropout': tf.compat.v1.placeholder_with_default(0., shape=()),
+        }
+
+        adj_placeholders = {'adj_mats_%d,%d,%d' % (i, j, k):
+                                tf.compat.v1.sparse_placeholder(tf.float32)
+                            for i, j in self.edge_types
+                            for k in range(self.edge_types[i, j])}
+        self.placeholders.update(adj_placeholders)
+
+        features_placeholders = {'feat_%d' % i:
+                                     tf.compat.v1.sparse_placeholder(tf.float32)
+                                 for i, _ in self.edge_types}
+        self.placeholders.update(features_placeholders)
+
+    def _model_init(self) -> None:
+        """
+        Create self.model
+        Returns
+        -------
+
+        """
+        print("Create model")
+        self.model = DecagonModel(
+            placeholders=self.placeholders,
+            num_feat=self.num_feat,
+            nonzero_feat=self.nonzero_feat,
+            edge_types=self.edge_types,
+            decoders=self.edge_type2decoder,
+        )
+
+    def _optimizer_init(self, batch_size: int, max_margin: float) -> None:
+        """
+        Create self.opt.
+        Parameters
+        ----------
+        batch_size: int
+            Minibatch size.
+        max_margin: float
+            Max margin parameter in hinge loss.
+
+        Returns
+        -------
+
+        """
+        print("Create optimizer")
+        with tf.compat.v1.name_scope('optimizer'):
+            self.opt = DecagonOptimizer(
+                embeddings=self.model.embeddings,
+                latent_inters=self.model.latent_inters,
+                latent_varies=self.model.latent_varies,
+                degrees=self.degrees,
                 edge_types=self.edge_types,
+                edge_type2dim=self.edge_type2dim,
+                placeholders=self.placeholders,
                 batch_size=batch_size,
-                val_test_size=val_test_size,
-                path_to_split=path_to_split,
-                need_sample_edges=need_sample_edges
+                margin=max_margin
             )
+
+    def _get_accuracy_scores(self, sess, edges_pos, edges_neg, edge_type):
+        # TODO: разобрать
+        self.feed_dict.update({self.placeholders['dropout']: 0})
+        self.feed_dict.update({self.placeholders['batch_edge_type_idx']:
+                              self.minibatch.edge_type2idx[edge_type]})
+        self.feed_dict.update({self.placeholders['batch_row_edge_type']: edge_type[0]})
+        self.feed_dict.update({self.placeholders['batch_col_edge_type']: edge_type[1]})
+        rec = sess.run(self.opt.predictions, feed_dict=self.feed_dict)
+
+        def sigmoid(x):
+            return 1. / (1 + np.exp(-x))
+
+        # Predict on test set of edges
+        preds = []
+        actual = []
+        predicted = []
+        edge_ind = 0
+        for u, v in edges_pos[edge_type[:2]][edge_type[2]]:
+            score = sigmoid(rec[u, v])
+            preds.append(score)
+            assert self.adj_mats[edge_type[:2]][edge_type[2]][
+                       u, v] == 1, 'Problem 1'
+
+            actual.append(edge_ind)
+            predicted.append((score, edge_ind))
+            edge_ind += 1
+
+        preds_neg = []
+        for u, v in edges_neg[edge_type[:2]][edge_type[2]]:
+            score = sigmoid(rec[u, v])
+            preds_neg.append(score)
+            assert self.adj_mats[edge_type[:2]][edge_type[2]][
+                       u, v] == 0, 'Problem 0'
+
+            predicted.append((score, edge_ind))
+            edge_ind += 1
+
+        preds_all = np.hstack([preds, preds_neg])
+        preds_all = np.nan_to_num(preds_all)
+        labels_all = np.hstack([np.ones(len(preds)), np.zeros(len(preds_neg))])
+        predicted = \
+        list(zip(*sorted(predicted, reverse=True, key=itemgetter(0))))[1]
+
+        roc_sc = metrics.roc_auc_score(labels_all, preds_all)
+        aupr_sc = metrics.average_precision_score(labels_all, preds_all)
+        apk_sc = rank_metrics.apk(actual, predicted, k=50)
+
+        return roc_sc, aupr_sc, apk_sc
+
+    def _run_epoch(self, sess: tf.compat.v1.Session, dropout: float,
+                   print_progress_every: int, epoch: int) -> None:
+        """
+        Run one epoch
+        Parameters
+        ----------
+        sess: tf.compat.v1.Session
+            initialize tf session
+        dropout: float
+            Dropout rate (1 - keep probability).
+        print_progress_every: int
+            Print statistic every print_progress_every iterations.
+        epoch: int
+            Number of current epoch (for printing statistic).
+
+        Returns
+        -------
+
+        """
+        self.minibatch.shuffle()
+        itr = 0
+        while not self.minibatch.end():
+            # Construct feed dictionary
+            feed_dict = self.minibatch.next_minibatch_feed_dict(
+                placeholders=self.placeholders)
+            feed_dict = self.minibatch.update_feed_dict(
+                feed_dict=feed_dict,
+                dropout=dropout,
+                placeholders=self.placeholders)
+
+            t = time.time()
+
+            # Training step: run single weight update
+            outs = sess.run([self.opt.opt_op, self.opt.cost,
+                             self.opt.batch_edge_type_idx], feed_dict=feed_dict)
+            train_cost = outs[1]
+            batch_edge_type = outs[2]
+
+            if itr % print_progress_every == 0:
+                val_auc, val_auprc, val_apk = self._get_accuracy_scores(
+                    self.minibatch.val_edges, self.minibatch.val_edges_false,
+                    self.minibatch.idx2edge_type[
+                        self.minibatch.current_edge_type_idx])
+
+                print("Epoch:", "%04d" % (epoch + 1), "Iter:",
+                      "%04d" % (itr + 1), "Edge:", "%04d" % batch_edge_type,
+                      "train_loss=", "{:.5f}".format(train_cost),
+                      "val_roc=", "{:.5f}".format(val_auc), "val_auprc=",
+                      "{:.5f}".format(val_auprc),
+                      "val_apk=", "{:.5f}".format(val_apk), "time=",
+                      "{:.5f}".format(time.time() - t))
+            itr += 1
+
+    def run(self, adj_path:str, path_to_split: str, val_test_size: float,
+            batch_size: int, num_epochs: int, dropout:float, max_margin: float,
+            print_progress_every: int):
+        """
+        Run Decagon.
+        Parameters
+        ----------
+        adj_path: str
+            path for saving/loading adjacency matrices
+        path_to_split: str
+            path to save train, test and validate edges.
+            If it consist needed edges, they will be loaded.
+            Else they will be calculated and saved.
+        batch_size: int
+            Minibatch size.
+        val_test_size: float
+            proportion to split edges into train, test and validate.
+        num_epochs: int
+            number of training epochs
+        dropout: float
+            Dropout rate (1 - keep probability).
+        print_progress_every: int
+            Print statistic every print_progress_every iterations
+        max_margin
+
+        Returns
+        -------
+
+        """
+        self._adjacency(adj_path)
+        self._nodes_features()
+        self._edge_types_info()
+        self._construct_placeholders()
+        self._minibatch_iterator_init(path_to_split, batch_size, val_test_size)
+        self._model_init()
+        self._optimizer_init(batch_size, max_margin)
+        print("Initialize session")
+        sess = tf.compat.v1.Session()
+        sess.run(tf.compat.v1.global_variables_initializer())
+        self.feed_dict = {}
+        for epoch in range(num_epochs):
+            self._run_epoch(sess, dropout, print_progress_every, epoch)
+        print("Optimization finished!")
+
+        for et in range(self.num_edge_types):
+            roc_score, auprc_score, apk_score = self._get_accuracy_scores(
+                self.minibatch.test_edges, self.minibatch.test_edges_false,
+                self.minibatch.idx2edge_type[et])
+            print("Edge type=",
+                  "[%02d, %02d, %02d]" % self.minibatch.idx2edge_type[et])
+            print("Edge type:", "%04d" % et, "Test AUROC score",
+                  "{:.5f}".format(roc_score))
+            print("Edge type:", "%04d" % et, "Test AUPRC score",
+                  "{:.5f}".format(auprc_score))
+            print("Edge type:", "%04d" % et, "Test AP@k score",
+                  "{:.5f}".format(apk_score))
+            print()
+
 
 
 

@@ -73,7 +73,7 @@ class EdgeMinibatchIterator(object):
         # TODO: Parallel to make faster
         for i, j in self.edge_types:
             for k in range(self.edge_types[i, j]):
-                print("Minibatch edge type:", f"({i}, {j}, {k})" % (i, j, k))
+                print("Minibatch edge type:", f"({i}, {j}, {k})")
                 self.mask_test_edges((i, j), k)
                 print("Train edges=", f"{len(self.train_edges[i,j][k]):.4f}")
                 print("Val edges=", f"{len(self.val_edges[i,j][k]):.4f}")

@@ -1,34 +1,41 @@
 import argparse
+import os
 from run_decagon_toy import RunDecagonToy
 from run_decagon_real import RunDecagonReal
-import neptune
-
-neptune.init('Pollutants/sandbox')
+from constants import PARAMS, INPUT_FILE_PATH
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Preprocess data downloaded from Phantasus')
-    parser.add_argument('--no_log', default=True,
+    parser.add_argument('--no-log', default=False,
                         action='store_true',
                         help='Whether to log run or nor, default True')
     parser.add_argument('--real', default=False,
+                        action='store_true',
                         help='Run on real data or toy example')
+    parser.add_argument('--batch-size', default=4, type=int,
+                        help='Batch size (default is 4)')
+    parser.add_argument('--hidden1', default=64, type=int,
+                        help="Number of neurons on first layer")
+    parser.add_argument('--hidden2', default=32, type=int,
+                        help="Number of neurons on second layer")
+    parser.add_argument('--epoch', default=50, type=int,
+                        help="Number of neurons on second layer")
 
     args = parser.parse_args()
-    decagon_data_file_directory = 'data/input'
 
-    PARAMS = {'neg_sample_size': 1,
-              'learning_rate': 0.001,
-              'epochs': 50,
-              'hidden1': 64,
-              'hidden2': 32,
-              'weight_decay': 0,
-              'dropout': 0.1,
-              'max_margin': 0.1,
-              'batch_size': 512,
-              'bias': True}
+    if args.no_log:
+        import neptune
+        neptune.init('Pollutants/sandbox')
+
+
+    PARAMS['epochs'] = args.epoch
+    PARAMS['hidden1'] = args.hidden1
+    PARAMS['hidden2'] = args.hidden2
+    PARAMS['batch_size'] = args.batch_size
+
     val_test_size = 0.1
-    if not args.no_log:
+    if args.no_log:
         neptune.create_experiment(name='example_with_parameters',
                                   params=PARAMS,
                                   upload_stdout=True,
@@ -45,13 +52,13 @@ if __name__ == '__main__':
                 dropout=PARAMS['dropout'], max_margin=PARAMS['max_margin'],
                 print_progress_every=150, no_log=args.no_log)
     else:
-        run = RunDecagonReal(combo_path=f'{decagon_data_file_directory}/bio-decagon-combo.csv',
-                             ppi_path=f'{decagon_data_file_directory}/bio-decagon-ppi.csv',
-                             mono_path=f'{decagon_data_file_directory}/bio-decagon-mono.csv',
-                             targets_path=f'{decagon_data_file_directory}/bio-decagon-targets-all.csv',
+        run = RunDecagonReal(combo_path=f'{INPUT_FILE_PATH}/bio-decagon-combo.csv',
+                             ppi_path=f'{INPUT_FILE_PATH}/bio-decagon-ppi.csv',
+                             mono_path=f'{INPUT_FILE_PATH}/bio-decagon-mono.csv',
+                             targets_path=f'{INPUT_FILE_PATH}/bio-decagon-targets-all.csv',
                              min_se_freq=500)
         run.run(path_to_split='data/split/real', val_test_size=val_test_size, batch_size=PARAMS['batch_size'],
                 num_epochs=PARAMS['epochs'], dropout=PARAMS['dropout'], max_margin=PARAMS['max_margin'],
                 print_progress_every=150, adj_path='data/adj/real', no_log=args.no_log)
-    if not args.no_log:
+    if args.no_log:
         neptune.stop()

@@ -7,7 +7,7 @@ from itertools import combinations
 import time
 import os
 
-import neptune
+#import neptune
 import tensorflow as tf
 import numpy as np
 import scipy.sparse as sp

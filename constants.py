@@ -15,3 +15,5 @@ PARAMS = {'neg_sample_size': 1,
               'max_margin': 0.1,
               'batch_size': 512,
               'bias': True}
+
+INPUT_FILE_PATH = "data/input"

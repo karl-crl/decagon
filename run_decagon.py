@@ -333,7 +333,7 @@ class RunDecagon:
                       "{:.5f}".format(val_auprc),
                       "val_apk=", "{:.5f}".format(val_apk), "time=",
                       "{:.5f}".format(time.time() - t))
-                if not no_log:
+                if no_log:
                     neptune.log_metric("val_roc", val_auc, timestamp=time.time())
                     neptune.log_metric("val_apk", val_apk, timestamp=time.time())
                     neptune.log_metric("val_auprc", val_auprc,
@@ -371,6 +371,14 @@ class RunDecagon:
         -------
 
         """
+
+        # check if all path exists
+        if adj_path and not os.path.exists(adj_path):
+            os.makedirs(adj_path)
+
+        if not os.path.exists(path_to_split):
+            os.makedirs(path_to_split)
+
         self._adjacency(adj_path)
         self._nodes_features()
         self._edge_types_info()
@@ -399,7 +407,7 @@ class RunDecagon:
             print("Edge type:", "%04d" % et, "Test AP@k score",
                   "{:.5f}".format(apk_score))
             print()
-        if not no_log:
+        if no_log:
             neptune.log_metric("ROC-AUC", roc_score)
             neptune.log_metric("AUPRC", auprc_score)
             neptune.log_metric("AP@k score", apk_score)

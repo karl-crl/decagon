@@ -10,7 +10,9 @@ from typing import Dict
 import time
 from sklearn import metrics
 from operator import itemgetter
+import  neptune
 
+tf.compat.v1.disable_eager_execution()
 
 
 class RunDecagon:
@@ -281,7 +283,7 @@ class RunDecagon:
         return roc_sc, aupr_sc, apk_sc
 
     def _run_epoch(self, sess: tf.compat.v1.Session, dropout: float,
-                   print_progress_every: int, epoch: int) -> None:
+                   print_progress_every: int, epoch: int, no_log: bool) -> None:
         """
         Run one epoch
         Parameters
@@ -303,10 +305,10 @@ class RunDecagon:
         itr = 0
         while not self.minibatch.end():
             # Construct feed dictionary
-            feed_dict = self.minibatch.next_minibatch_feed_dict(
+            self.feed_dict = self.minibatch.next_minibatch_feed_dict(
                 placeholders=self.placeholders)
-            feed_dict = self.minibatch.update_feed_dict(
-                feed_dict=feed_dict,
+            self.feed_dict = self.minibatch.update_feed_dict(
+                feed_dict=self.feed_dict,
                 dropout=dropout,
                 placeholders=self.placeholders)
 
@@ -314,13 +316,13 @@ class RunDecagon:
 
             # Training step: run single weight update
             outs = sess.run([self.opt.opt_op, self.opt.cost,
-                             self.opt.batch_edge_type_idx], feed_dict=feed_dict)
+                             self.opt.batch_edge_type_idx], feed_dict=self.feed_dict)
             train_cost = outs[1]
             batch_edge_type = outs[2]
 
             if itr % print_progress_every == 0:
                 val_auc, val_auprc, val_apk = self._get_accuracy_scores(
-                    self.minibatch.val_edges, self.minibatch.val_edges_false,
+                    sess, self.minibatch.val_edges, self.minibatch.val_edges_false,
                     self.minibatch.idx2edge_type[
                         self.minibatch.current_edge_type_idx])
 
@@ -331,11 +333,18 @@ class RunDecagon:
                       "{:.5f}".format(val_auprc),
                       "val_apk=", "{:.5f}".format(val_apk), "time=",
                       "{:.5f}".format(time.time() - t))
+                if not no_log:
+                    neptune.log_metric("val_roc", val_auc, timestamp=time.time())
+                    neptune.log_metric("val_apk", val_apk, timestamp=time.time())
+                    neptune.log_metric("val_auprc", val_auprc,
+                                       timestamp=time.time())
+                    neptune.log_metric("train_loss", train_cost,
+                                       timestamp=time.time())
             itr += 1
 
     def run(self, adj_path:str, path_to_split: str, val_test_size: float,
             batch_size: int, num_epochs: int, dropout:float, max_margin: float,
-            print_progress_every: int):
+            print_progress_every: int, no_log=True):
         """
         Run Decagon.
         Parameters
@@ -374,12 +383,12 @@ class RunDecagon:
         sess.run(tf.compat.v1.global_variables_initializer())
         self.feed_dict = {}
         for epoch in range(num_epochs):
-            self._run_epoch(sess, dropout, print_progress_every, epoch)
+            self._run_epoch(sess, dropout, print_progress_every, epoch, no_log)
         print("Optimization finished!")
 
         for et in range(self.num_edge_types):
             roc_score, auprc_score, apk_score = self._get_accuracy_scores(
-                self.minibatch.test_edges, self.minibatch.test_edges_false,
+                sess, self.minibatch.test_edges, self.minibatch.test_edges_false,
                 self.minibatch.idx2edge_type[et])
             print("Edge type=",
                   "[%02d, %02d, %02d]" % self.minibatch.idx2edge_type[et])
@@ -390,7 +399,10 @@ class RunDecagon:
             print("Edge type:", "%04d" % et, "Test AP@k score",
                   "{:.5f}".format(apk_score))
             print()
-
+        if not no_log:
+            neptune.log_metric("ROC-AUC", roc_score)
+            neptune.log_metric("AUPRC", auprc_score)
+            neptune.log_metric("AP@k score", apk_score)
 
 
 

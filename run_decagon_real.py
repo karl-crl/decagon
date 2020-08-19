@@ -157,7 +157,7 @@ class RunDecagonReal(RunDecagon):
                 ordered_list_b_item=self.ordered_list_of_se)
             print("Saving matrices to file")
             for i in range(len(drug_drug_adj_list)):
-                sp.save_npz('adjacency_matrices/sparse_matrix%04d.npz' % (i,),
+                sp.save_npz(f'{adj_path}/sparse_matrix%04d.npz' % (i,),
                             drug_drug_adj_list[i].tocoo())
         # Number of connections for each drug
         drug_degrees_list = [np.array(drug_adj.sum(axis=0)).squeeze()

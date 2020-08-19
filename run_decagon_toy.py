@@ -71,12 +71,11 @@ class RunDecagonToy(RunDecagon):
         drug_degrees_list = [np.array(drug_adj.sum(axis=0)).squeeze() for
                              drug_adj in drug_drug_adj_list]
         # data representation
-        self.adj_mats_orig = {
-            (0, 0): [gene_adj, gene_adj.transpose(copy=True)],
+        self.adj_mats = {
+            (0, 0): [gene_adj],
             (0, 1): [gene_drug_adj],
             (1, 0): [drug_gene_adj],
-            (1, 1): drug_drug_adj_list + [x.transpose(copy=True) for x in
-                                          drug_drug_adj_list],
+            (1, 1): drug_drug_adj_list
         }
         self.degrees = {
             0: [gene_degrees, gene_degrees],
@@ -116,15 +115,15 @@ class RunDecagonToy(RunDecagon):
         drug_feat = preprocessing.sparse_to_tuple(drug_feat.tocoo())
 
         # data representation
-        num_feat = {
+        self.num_feat = {
             0: gene_num_feat,
             1: drug_num_feat,
         }
-        nonzero_feat = {
+        self.nonzero_feat = {
             0: gene_nonzero_feat,
             1: drug_nonzero_feat,
         }
-        feat = {
+        self.feat = {
             0: gene_feat,
             1: drug_feat,
         }

@@ -63,19 +63,25 @@ class RunDecagonReal(RunDecagon):
     """
 
     def __init__(self, combo_path: str, ppi_path: str, mono_path: str,
-                 targets_path: str, min_se_freq: int):
+                 targets_path: str, min_se_freq: int, min_se_freq_mono: int):
         super().__init__()
         frequent_combo_path = self._leave_frequent_se(combo_path, min_se_freq)
         self.drug_drug_net, self.combo2stitch, self.combo2se, self.se2name = \
             load_combo_se(combo_path=frequent_combo_path)
         self.gene_net, self.node2idx = load_ppi(ppi_path=ppi_path)
-        self.stitch2se, self.se2name_mono = load_mono_se(mono_path=mono_path)
+        self.stitch2se, self.se2name_mono, se2stitch = load_mono_se(
+            mono_path=mono_path)
         self.stitch2proteins = load_targets(targets_path=targets_path)
 
         self.ordered_list_of_drugs = list(self.drug_drug_net.nodes.keys())
         self.ordered_list_of_se = list(self.se2name.keys())
         self.ordered_list_of_proteins = list(self.gene_net.nodes.keys())
-        self.ordered_list_of_se_mono = list(self.se2name_mono.keys())
+
+        drugs_set = set(self.ordered_list_of_drugs)
+        # Only individual se with frequency >= min_se_freq_mono will be saved.
+        self.ordered_list_of_se_mono = [
+            se_mono for se_mono, stitch_set in se2stitch.items() if
+            len(stitch_set.intersection(drugs_set)) > min_se_freq_mono]
 
     @staticmethod
     def _leave_frequent_se(combo_path: str, min_se_freq: int) -> str:
@@ -200,7 +206,7 @@ class RunDecagonReal(RunDecagon):
         gene_feat = sp.identity(n_genes)
         gene_nonzero_feat, gene_num_feat = gene_feat.shape
         gene_feat = preprocessing.sparse_to_tuple(gene_feat.tocoo())
-
+        
         # Create sparse matrix with rows -- genes features.
         # Gene feature -- binary vector with length = num of mono se.
         # feature[i] = 1 <=> gene has ith mono se
@@ -213,11 +219,21 @@ class RunDecagonReal(RunDecagon):
             self.ordered_list_of_drugs)[drug_feat.getnnz(axis=1) == 0]
         # assert 0 not in drug_feat.getnnz(axis=1), \
         # 'All genes should have nonzero embeddings! '
+        print(f'Length of drugs features vectors: {drug_feat.shape[1]}')
+        print(f'Number of unique vectors: '
+              f'{np.unique(drug_feat.toarray(), axis=0).shape[0]}')
         if len(drugs_zero_features) > 0:
             print('Warning! All genes should have nonzero embeddings! ')
+            print(f'Where are {len(drugs_zero_features)} zero embeddings')
             print(f'Bad drugs: {drugs_zero_features}')
         drug_nonzero_feat, drug_num_feat = drug_feat.shape
         drug_feat = preprocessing.sparse_to_tuple(drug_feat.tocoo())
+        """
+        n_drugs = len(self.ordered_list_of_drugs)
+        drug_feat = sp.identity(n_drugs)
+        drug_nonzero_feat, drug_num_feat = drug_feat.shape
+        drug_feat = preprocessing.sparse_to_tuple(drug_feat.tocoo())
+	"""
 
         self.num_feat = {
             0: gene_num_feat,

@@ -55,7 +55,7 @@ if __name__ == '__main__':
                              ppi_path=f'{INPUT_FILE_PATH}/bio-decagon-ppi.csv',
                              mono_path=f'{INPUT_FILE_PATH}/bio-decagon-mono.csv',
                              targets_path=f'{INPUT_FILE_PATH}/bio-decagon-targets-all.csv',
-                             min_se_freq=500)
+                             min_se_freq=500, min_se_freq_mono=40)
         run.run(path_to_split='data/split/real', val_test_size=val_test_size, batch_size=PARAMS['batch_size'],
                 num_epochs=PARAMS['epochs'], dropout=PARAMS['dropout'], max_margin=PARAMS['max_margin'],
                 print_progress_every=150, adj_path='data/adj/real', log=args.log)

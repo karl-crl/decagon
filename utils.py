@@ -101,10 +101,12 @@ def load_mono_se(mono_path:str='bio-decagon-mono.csv') -> Tuple[dict, dict]:
 
     # from Stitch ID to set of individual side effects
     stitch2se = defaultdict(set)
+    se2stitch = defaultdict(set)
     for stitch, se in mono_df[['STITCH', 'Individual Side Effect']].values:
         stitch2se[stitch].add(se)
+        se2stitch[se].add(stitch)
 
-    return stitch2se, se2name
+    return stitch2se, se2name, se2stitch
 
 
 def load_targets(targets_path: str = 'bio-decagon-targets.csv') -> dict:

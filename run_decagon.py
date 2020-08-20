@@ -1,6 +1,10 @@
 import os
+import pickle
+
 import numpy as np
 import scipy.sparse as sp
+
+from constants import MODEL_SAVE_PATH, FEED_DICT_PATH
 from decagon.utility import rank_metrics, preprocessing
 from decagon.deep.optimizer import DecagonOptimizer
 from decagon.deep.model import DecagonModel
@@ -13,7 +17,7 @@ from operator import itemgetter
 import  neptune
 
 tf.compat.v1.disable_eager_execution()
-
+#saver = tf.compat.v1.train.Saver()
 
 class RunDecagon:
     """
@@ -283,7 +287,7 @@ class RunDecagon:
         return roc_sc, aupr_sc, apk_sc
 
     def _run_epoch(self, sess: tf.compat.v1.Session, dropout: float,
-                   print_progress_every: int, epoch: int, log: bool) -> None:
+                   print_progress_every: int, epoch: int, log: bool, saver) -> None:
         """
         Run one epoch
         Parameters
@@ -296,6 +300,8 @@ class RunDecagon:
             Print statistic every print_progress_every iterations.
         epoch: int
             Number of current epoch (for printing statistic).
+        log : bool
+            Whether to log or not
 
         Returns
         -------
@@ -387,13 +393,16 @@ class RunDecagon:
         self._model_init()
         self._optimizer_init(batch_size, max_margin)
         print("Initialize session")
+        saver = tf.compat.v1.train.Saver()
         sess = tf.compat.v1.Session()
+        ###
         sess.run(tf.compat.v1.global_variables_initializer())
         self.feed_dict = {}
         for epoch in range(num_epochs):
-            self._run_epoch(sess, dropout, print_progress_every, epoch, log)
+            self._run_epoch(sess, dropout, print_progress_every, epoch, log, saver)
+            saver.save(sess, MODEL_SAVE_PATH)
         print("Optimization finished!")
-
+        #saver.save(sess, MODEL_SAVE_PATH)
         for et in range(self.num_edge_types):
             roc_score, auprc_score, apk_score = self._get_accuracy_scores(
                 sess, self.minibatch.test_edges, self.minibatch.test_edges_false,
@@ -411,6 +420,26 @@ class RunDecagon:
             neptune.log_metric("ROC-AUC", roc_score)
             neptune.log_metric("AUPRC", auprc_score)
             neptune.log_metric("AP@k score", apk_score)
+        ###
+        # Uncomment to load stored model
+        # saver.restore(sess, MODEL_SAVE_PATH)
+        # sess.run(tf.compat.v1.global_variables_initializer())
+        # self.feed_dict = {}
+        # self._run_epoch(sess, dropout, print_progress_every, 1, log, saver)
+        # saver.restore(sess, MODEL_SAVE_PATH)
+        # for et in range(self.num_edge_types):
+        #     roc_score, auprc_score, apk_score = self._get_accuracy_scores(
+        #         sess, self.minibatch.test_edges, self.minibatch.test_edges_false,
+        #         self.minibatch.idx2edge_type[et])
+        #     print("Edge type=",
+        #           "[%02d, %02d, %02d]" % self.minibatch.idx2edge_type[et])
+        #     print("Edge type:", "%04d" % et, "Test AUROC score",
+        #           "{:.5f}".format(roc_score))
+        #     print("Edge type:", "%04d" % et, "Test AUPRC score",
+        #           "{:.5f}".format(auprc_score))
+        #     print("Edge type:", "%04d" % et, "Test AP@k score",
+        #           "{:.5f}".format(apk_score))
+        #     print()
 
 
 

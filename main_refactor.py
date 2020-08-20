@@ -12,13 +12,13 @@ if __name__ == '__main__':
     parser.add_argument('--real', default=False,
                         action='store_true',
                         help='Run on real data or toy example')
-    parser.add_argument('--batch-size', default=4, type=int,
+    parser.add_argument('--batch-size', default=PARAMS['batch_size'], type=int,
                         help='Batch size (default is 4)')
-    parser.add_argument('--hidden1', default=64, type=int,
+    parser.add_argument('--hidden1', default=PARAMS['hidden1'], type=int,
                         help="Number of neurons on first layer")
-    parser.add_argument('--hidden2', default=32, type=int,
+    parser.add_argument('--hidden2', default=PARAMS['hidden2'], type=int,
                         help="Number of neurons on second layer")
-    parser.add_argument('--epoch', default=50, type=int,
+    parser.add_argument('--epoch', default=PARAMS['epoch'], type=int,
                         help="Number of neurons on second layer")
 
     args = parser.parse_args()
@@ -28,7 +28,7 @@ if __name__ == '__main__':
         neptune.init('Pollutants/sandbox')
 
 
-    PARAMS['epochs'] = args.epoch
+    PARAMS['epoch'] = args.epoch
     PARAMS['hidden1'] = args.hidden1
     PARAMS['hidden2'] = args.hidden2
     PARAMS['batch_size'] = args.batch_size
@@ -48,7 +48,7 @@ if __name__ == '__main__':
         run = RunDecagonToy()
         run.run(adj_path=None, path_to_split=f'data/split/toy/{PARAMS["batch_size"]}',
                 val_test_size=val_test_size,
-                batch_size=PARAMS['batch_size'], num_epochs=PARAMS['epochs'],
+                batch_size=PARAMS['batch_size'], num_epochs=PARAMS['epoch'],
                 dropout=PARAMS['dropout'], max_margin=PARAMS['max_margin'],
                 print_progress_every=150, log=args.log)
     else:
@@ -59,7 +59,7 @@ if __name__ == '__main__':
                              min_se_freq=500, min_se_freq_mono=40)
         run.run(path_to_split=f'data/split/real/{PARAMS["batch_size"]}',
                 val_test_size=val_test_size, batch_size=PARAMS['batch_size'],
-                num_epochs=PARAMS['epochs'], dropout=PARAMS['dropout'],
+                num_epochs=PARAMS['epoch'], dropout=PARAMS['dropout'],
                 max_margin=PARAMS['max_margin'],
                 print_progress_every=150, adj_path='data/adj/real', log=args.log)
     if args.log:

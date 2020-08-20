@@ -7,7 +7,7 @@ MIN_SIDE_EFFECT_FREQUENCY = 500
 # Model parameters
 PARAMS = {'neg_sample_size': 1,
               'learning_rate': 0.001,
-              'epochs': 50,
+              'epoch': 30,
               'hidden1': 64,
               'hidden2': 32,
               'weight_decay': 0,
@@ -17,3 +17,7 @@ PARAMS = {'neg_sample_size': 1,
               'bias': True}
 
 INPUT_FILE_PATH = "data/input"
+
+MODEL_SAVE_PATH = "data/output/saved_model/model.ckpt"
+
+FEED_DICT_PATH = "data/output/saved_model/feed_dick.pickle"

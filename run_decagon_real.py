@@ -78,7 +78,7 @@ class RunDecagonReal(RunDecagon):
         self.ordered_list_of_proteins = list(self.gene_net.nodes.keys())
 
         drugs_set = set(self.ordered_list_of_drugs)
-        # Only individual se with frequency >= min_se_freq_mono will be saved.
+        # Only individual se with frequency > min_se_freq_mono will be saved.
         self.ordered_list_of_se_mono = [
             se_mono for se_mono, stitch_set in se2stitch.items() if
             len(stitch_set.intersection(drugs_set)) > min_se_freq_mono]
@@ -144,8 +144,6 @@ class RunDecagonReal(RunDecagon):
         gene_drug_adj = drug_gene_adj.transpose(copy=True)
 
         num_se = len(self.ordered_list_of_se)
-        if not os.path.isdir(adj_path):
-            os.mkdir(adj_path)
         drug_drug_adj_list = []
         try:
             print("Try to load drug-drug adjacency matrices from file.")
@@ -206,7 +204,7 @@ class RunDecagonReal(RunDecagon):
         gene_feat = sp.identity(n_genes)
         gene_nonzero_feat, gene_num_feat = gene_feat.shape
         gene_feat = preprocessing.sparse_to_tuple(gene_feat.tocoo())
-        
+
         # Create sparse matrix with rows -- genes features.
         # Gene feature -- binary vector with length = num of mono se.
         # feature[i] = 1 <=> gene has ith mono se
@@ -233,8 +231,7 @@ class RunDecagonReal(RunDecagon):
         drug_feat = sp.identity(n_drugs)
         drug_nonzero_feat, drug_num_feat = drug_feat.shape
         drug_feat = preprocessing.sparse_to_tuple(drug_feat.tocoo())
-	"""
-
+    """
         self.num_feat = {
             0: gene_num_feat,
             1: drug_num_feat,

@@ -5,9 +5,8 @@ from run_decagon_real import RunDecagonReal
 from constants import PARAMS, INPUT_FILE_PATH
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='Preprocess data downloaded from Phantasus')
-    parser.add_argument('--no-log', default=False,
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--log', default=False,
                         action='store_true',
                         help='Whether to log run or nor, default True')
     parser.add_argument('--real', default=False,
@@ -24,7 +23,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.no_log:
+    if args.log:
         import neptune
         neptune.init('Pollutants/sandbox')
 
@@ -35,7 +34,7 @@ if __name__ == '__main__':
     PARAMS['batch_size'] = args.batch_size
 
     val_test_size = 0.1
-    if args.no_log:
+    if args.log:
         neptune.create_experiment(name='example_with_parameters',
                                   params=PARAMS,
                                   upload_stdout=True,
@@ -50,7 +49,7 @@ if __name__ == '__main__':
         run.run(adj_path=None, path_to_split='data/split/toy', val_test_size=val_test_size,
                 batch_size=PARAMS['batch_size'], num_epochs=PARAMS['epochs'],
                 dropout=PARAMS['dropout'], max_margin=PARAMS['max_margin'],
-                print_progress_every=150, no_log=args.no_log)
+                print_progress_every=150, log=args.log)
     else:
         run = RunDecagonReal(combo_path=f'{INPUT_FILE_PATH}/bio-decagon-combo.csv',
                              ppi_path=f'{INPUT_FILE_PATH}/bio-decagon-ppi.csv',
@@ -59,6 +58,6 @@ if __name__ == '__main__':
                              min_se_freq=500)
         run.run(path_to_split='data/split/real', val_test_size=val_test_size, batch_size=PARAMS['batch_size'],
                 num_epochs=PARAMS['epochs'], dropout=PARAMS['dropout'], max_margin=PARAMS['max_margin'],
-                print_progress_every=150, adj_path='data/adj/real', no_log=args.no_log)
-    if args.no_log:
+                print_progress_every=150, adj_path='data/adj/real', log=args.log)
+    if args.log:
         neptune.stop()

@@ -283,7 +283,7 @@ class RunDecagon:
         return roc_sc, aupr_sc, apk_sc
 
     def _run_epoch(self, sess: tf.compat.v1.Session, dropout: float,
-                   print_progress_every: int, epoch: int, no_log: bool) -> None:
+                   print_progress_every: int, epoch: int, log: bool) -> None:
         """
         Run one epoch
         Parameters
@@ -333,7 +333,7 @@ class RunDecagon:
                       "{:.5f}".format(val_auprc),
                       "val_apk=", "{:.5f}".format(val_apk), "time=",
                       "{:.5f}".format(time.time() - t))
-                if no_log:
+                if log:
                     neptune.log_metric("val_roc", val_auc, timestamp=time.time())
                     neptune.log_metric("val_apk", val_apk, timestamp=time.time())
                     neptune.log_metric("val_auprc", val_auprc,
@@ -344,7 +344,7 @@ class RunDecagon:
 
     def run(self, adj_path:str, path_to_split: str, val_test_size: float,
             batch_size: int, num_epochs: int, dropout:float, max_margin: float,
-            print_progress_every: int, no_log=True):
+            print_progress_every: int, log: bool):
         """
         Run Decagon.
         Parameters
@@ -391,7 +391,7 @@ class RunDecagon:
         sess.run(tf.compat.v1.global_variables_initializer())
         self.feed_dict = {}
         for epoch in range(num_epochs):
-            self._run_epoch(sess, dropout, print_progress_every, epoch, no_log)
+            self._run_epoch(sess, dropout, print_progress_every, epoch, log)
         print("Optimization finished!")
 
         for et in range(self.num_edge_types):
@@ -407,7 +407,7 @@ class RunDecagon:
             print("Edge type:", "%04d" % et, "Test AP@k score",
                   "{:.5f}".format(apk_score))
             print()
-        if no_log:
+        if log:
             neptune.log_metric("ROC-AUC", roc_score)
             neptune.log_metric("AUPRC", auprc_score)
             neptune.log_metric("AP@k score", apk_score)

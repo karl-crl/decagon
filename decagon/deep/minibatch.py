@@ -3,12 +3,13 @@ from __future__ import print_function
 
 import gc
 import math
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import scipy.sparse as sp
 import os
 
+from constants import PARAMS
 from ..utility import preprocessing
 
 np.random.seed(123)
@@ -22,7 +23,7 @@ class EdgeMinibatchIterator(object):
     batch_size -- size of the minibatches
     """
     def __init__(self, adj_mats, feat, edge_types, path_to_split,
-                 batch_size=100, val_test_size=0.01, need_sample_edges=False):
+                 batch_size=PARAMS['batch_size'], val_test_size=0.01, need_sample_edges=False):
         self.adj_mats = adj_mats
         self.feat = feat
         self.edge_types = edge_types
@@ -70,7 +71,6 @@ class EdgeMinibatchIterator(object):
         # Function to build test and val sets with val_test_size positive links
         self.adj_train = {edge_type: [None] * n for edge_type, n in
                           self.edge_types.items()}
-        # TODO: Parallel to make faster
         for i, j in self.edge_types:
             for k in range(self.edge_types[i, j]):
                 print("Minibatch edge type:", f"({i}, {j}, {k})")
@@ -87,7 +87,8 @@ class EdgeMinibatchIterator(object):
         np.save(f'{path_to_split}/val_edges_false.npy', self.val_edges_false)
         np.save(f'{path_to_split}/adj_train.npy', self.adj_train)
 
-    def preprocess_graph(self, adj):
+    @staticmethod
+    def preprocess_graph(adj):
         adj = sp.coo_matrix(adj)
         if adj.shape[0] == adj.shape[1]:
             adj_ = adj + sp.eye(adj.shape[0])
@@ -106,7 +107,8 @@ class EdgeMinibatchIterator(object):
                 coldegree_mat_inv).tocoo()
         return preprocessing.sparse_to_tuple(adj_normalized)
 
-    def _ismember(self, a, b):
+    @staticmethod
+    def _ismember(a, b):
         a = np.array(a)
         b = np.array(b)
         rows_close = np.all(a - b == 0, axis=1)
@@ -114,14 +116,134 @@ class EdgeMinibatchIterator(object):
 
     @staticmethod
     def _sample_from_zeros(n: int, sparse: sp.csr_matrix) -> List[List[int]]:
+        """
+        Sample n zeros from spacse matrix.
+
+        Parameters
+        ----------
+        n : int
+            Number of samples to get from matrix.
+        sparse : sp.csr_matrix
+            Sparse matrix.
+
+        Returns
+        -------
+        List[List[int]]
+            List of 2-D indices of zeros.
+
+        """
         zeros = np.argwhere(np.logical_not(sparse.todense()))
         ids = np.random.choice(range(len(zeros)), size=(n,))
         return zeros[ids].tolist()
 
+    def _sample_by_row(self, num_of_iters_y: int, sparse: sp.csr_matrix,
+                       part_of_zero_i: List[float], batch_size: int,
+                       n_of_samples: int, start_idx: int,
+                       end_idx: Optional[int] = None) -> list:
+        """
+        Sample zeros from batch of sparse of kind: sparse[start_idx:end_idx]
+
+        Parameters
+        ----------
+        num_of_iters_y : int
+        sparse : sp.csr_matrix
+            Sparse matrix.
+        part_of_zero_i : List[float]
+            Part on n samples to get from current part of matrix.
+        batch_size : int
+            Size of batch (height and width).
+        n_of_samples : int
+            Samples to get from matrix.
+        start_idx : int
+            Start index of batch by x.
+        end_idx : Optional[int]
+            End index of batch by x.
+
+        Returns
+        -------
+        list
+            List of samples.
+        """
+        to_return = []
+        for j in range(num_of_iters_y):
+            to_sample = math.ceil(n_of_samples * (part_of_zero_i[j]))
+            submat = sparse[start_idx:end_idx,
+                     j * batch_size:(j + 1) * batch_size]
+            ids_in_submat = self._sample_from_zeros(to_sample, submat)
+            ids_in_mat = ids_in_submat + \
+                         np.array([start_idx, j * batch_size])
+            to_return.extend(ids_in_mat)
+        j = num_of_iters_y
+        if j*batch_size < sparse.shape[1]:
+            to_sample = math.ceil(n_of_samples * (part_of_zero_i[j]))
+            submat = sparse[start_idx:end_idx,
+                     j * batch_size:]
+            ids_in_submat = self._sample_from_zeros(to_sample, submat)
+            ids_in_mat = ids_in_submat + \
+                         np.array([start_idx, j * batch_size])
+            to_return.extend(ids_in_mat)
+        return to_return
+
+    @staticmethod
+    def _get_number_of_zeros_by_row(sparse: sp.csr_matrix, num_of_iters_y: int,
+                                    batch_size: int, elements_in_batch: int,
+                                    start_idx: int, end_idx: Optional[int] = None
+                                    ) -> List[float]:
+        """
+        Get number of zeros in batch of sparse of kind: sparse[start_idx:end_idx]
+
+        Parameters
+        ----------
+        sparse : sp.csr_matrix
+            Sparse matrix.
+        num_of_iters_y : int
+        batch_size : int
+            Size of batch (height and width).
+        elements_in_batch : int
+            Number of elements in batch.
+        start_idx : int
+            Start index of batch by x.
+        end_idx : Optional[int]
+            End index of batch by x.
+
+        Returns
+        -------
+        List[float]
+            List of number of zeros in each batch.
+        """
+        tmp = []
+        for j in range(num_of_iters_y):
+            tmp.append(1 - sparse[start_idx:end_idx,
+                           j * batch_size:(j + 1) * batch_size].count_nonzero()
+                       / elements_in_batch)
+        j = num_of_iters_y
+        if (j*batch_size < sparse.shape[1]):
+            sub_mtr = sparse[start_idx:end_idx, j * batch_size:]
+            tmp.append(
+                1 - sub_mtr.count_nonzero() / (sub_mtr.shape[0] * sub_mtr.shape[1]))
+        return tmp
+
+
 
     def _negative_sampling(self, sparse: sp.csr_matrix, n_of_samples: int,
                            batch_size: int = 1000) -> List[List[int]]:
-        # TODO: Magic constants
+        """
+        Perform negative sampling.
+
+        Parameters
+        ----------
+        sparse : sp.csr_matrix
+            Sparse matrix.
+        n_of_samples : int
+            Number os samples to get.
+        batch_size : int
+            Size of batch (height and width).
+
+        Returns
+        -------
+        List[List[int]]
+            List of negative samples.
+        """
         num_of_iters_x = sparse.shape[0] // batch_size
         num_of_iters_y = sparse.shape[1] // batch_size
 
@@ -129,69 +251,27 @@ class EdgeMinibatchIterator(object):
         elements_in_batch = batch_size ** 2
         part_of_zero = []
         for i in range(num_of_iters_x):
-            tmp = []
-            for j in range(num_of_iters_y):
-                tmp.append(1 - sparse[i * batch_size:(i + 1) * batch_size,
-                           j * batch_size:(j + 1) * batch_size].count_nonzero()
-                           / elements_in_batch)
-            j = num_of_iters_y
-            sub_mtr = sparse[i * batch_size:(i + 1) * batch_size,
-                      j * batch_size:]
-            tmp.append(1 - sub_mtr.count_nonzero() / (sub_mtr.shape[0] * sub_mtr.shape[1]))
-            part_of_zero.append(tmp)
+            part_of_zero.append(self._get_number_of_zeros_by_row(sparse, num_of_iters_y, batch_size,
+                                                                 elements_in_batch, i * batch_size,
+                                                                 (i + 1) * batch_size))
         i = num_of_iters_x
-        tmp = []
-        for j in range(num_of_iters_y):
-            sub_mtr = sparse[i * batch_size:,
-                      j * batch_size:(j + 1) * batch_size]
-            tmp.append(
-                1 - sub_mtr.count_nonzero() / (sub_mtr.shape[0] * sub_mtr.shape[1]))
-        j = num_of_iters_y
-        sub_mtr = sparse[i * batch_size:, j * batch_size:]
-        try:
-            tmp.append(1 - sub_mtr.count_nonzero() / (sub_mtr.shape[0] * sub_mtr.shape[1]))
-            part_of_zero.append(tmp)
-        except ZeroDivisionError as e:
-            print(sub_mtr.shape)
+        if num_of_iters_x*batch_size < sparse.shape[0]:
+            part_of_zero.append(self._get_number_of_zeros_by_row(sparse, num_of_iters_y, batch_size,
+                                                                 elements_in_batch, i * batch_size))
 
         norm = sum([sum(i) for i in part_of_zero])
         part_of_zero = [[i / norm for i in lst] for lst in part_of_zero]
         result = []
         for i in range(num_of_iters_x):
             print(f"Progress: {i}/{num_of_iters_x}")
-            for j in range(num_of_iters_y):
-                to_sample = math.ceil(n_of_samples * (part_of_zero[i][j]))
-                submat = sparse[i * batch_size:(i + 1) * batch_size,
-                            j * batch_size:(j + 1) * batch_size]
-                ids_in_submat = self._sample_from_zeros(to_sample, submat)
-                ids_in_mat = ids_in_submat + \
-                             np.array([i * batch_size, j * batch_size])
-                result.extend(ids_in_mat)
-            j = num_of_iters_y
-            to_sample = math.ceil(n_of_samples * (part_of_zero[i][j]))
-            submat = sparse[i * batch_size:(i + 1) * batch_size,
-                     j * batch_size:]
-            ids_in_submat = self._sample_from_zeros(to_sample, submat)
-            ids_in_mat = ids_in_submat + \
-                         np.array([i * batch_size, j * batch_size])
-            result.extend(ids_in_mat)
+            result.extend(self._sample_by_row(num_of_iters_y, sparse, part_of_zero[i],
+                                              batch_size, n_of_samples,
+                                              i * batch_size, (i + 1) * batch_size))
             gc.collect()
-        i = num_of_iters_x
-        for j in range(num_of_iters_y):
-            to_sample = math.ceil(n_of_samples * (part_of_zero[i][j]))
-            submat = sparse[i * batch_size:,
-                     j * batch_size:(j + 1) * batch_size]
-            ids_in_submat = self._sample_from_zeros(to_sample, submat)
-            ids_in_mat = ids_in_submat + \
-                         np.array([i * batch_size, j * batch_size])
-            result.extend(ids_in_mat)
-        j = num_of_iters_y
-        to_sample = math.ceil(n_of_samples * (part_of_zero[i][j]))
-        submat = sparse[i * batch_size:, j * batch_size:]
-        ids_in_submat = self._sample_from_zeros(to_sample, submat)
-        ids_in_mat = ids_in_submat + \
-                     np.array([i * batch_size, j * batch_size])
-        result.extend(ids_in_mat)
+        if num_of_iters_x*batch_size < sparse.shape[0]:
+            result.extend(self._sample_by_row(num_of_iters_y, sparse, part_of_zero[i],
+                                              batch_size, n_of_samples,
+                                              num_of_iters_x * batch_size))
         np.random.shuffle(result)
         return result[:n_of_samples]
 

@@ -324,20 +324,6 @@ class RunDecagon(metaclass=ABCMeta):
                       "{:.5f}".format(val_auprc),
                       "val_apk=", "{:.5f}".format(val_apk), "time=",
                       "{:.5f}".format(time.time() - t))
-
-                val_auc, val_auprc, val_apk = self._get_accuracy_scores2(
-                    sess, self.minibatch.val_edges,
-                    self.minibatch.val_edges_false,
-                    self.minibatch.idx2edge_type[
-                        self.minibatch.current_edge_type_idx])
-
-                print("Epoch:", "%04d" % (epoch + 1), "Iter:",
-                      "%04d" % (itr + 1), "Edge:", "%04d" % batch_edge_type,
-                      "train_loss=", "{:.5f}".format(train_cost),
-                      "val_roc=", "{:.5f}".format(val_auc), "val_auprc=",
-                      "{:.5f}".format(val_auprc),
-                      "val_apk=", "{:.5f}".format(val_apk), "time=",
-                      "{:.5f}".format(time.time() - t))
                 if log:
                     import neptune
                     neptune.log_metric("val_roc", val_auc,

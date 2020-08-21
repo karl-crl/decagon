@@ -13,20 +13,22 @@ if __name__ == '__main__':
                         action='store_true',
                         help='Run on real data or toy example')
     parser.add_argument('--batch-size', default=PARAMS['batch_size'], type=int,
-                        help='Batch size (default is 4)')
+                        help='Batch size')
     parser.add_argument('--hidden1', default=PARAMS['hidden1'], type=int,
                         help="Number of neurons on first layer")
     parser.add_argument('--hidden2', default=PARAMS['hidden2'], type=int,
                         help="Number of neurons on second layer")
     parser.add_argument('--epoch', default=PARAMS['epoch'], type=int,
                         help="Number of neurons on second layer")
+    parser.add_argument('--cpu', default=False,
+                        action='store_true',
+                        help='Run on cpu instead of gpu')
 
     args = parser.parse_args()
 
     if args.log:
         import neptune
         neptune.init('Pollutants/sandbox')
-
 
     PARAMS['epoch'] = args.epoch
     PARAMS['hidden1'] = args.hidden1
@@ -50,7 +52,7 @@ if __name__ == '__main__':
                 val_test_size=val_test_size,
                 batch_size=PARAMS['batch_size'], num_epochs=PARAMS['epoch'],
                 dropout=PARAMS['dropout'], max_margin=PARAMS['max_margin'],
-                print_progress_every=150, log=args.log)
+                print_progress_every=150, log=args.log, on_cpu=args.cpu)
     else:
         run = RunDecagonReal(combo_path=f'{INPUT_FILE_PATH}/bio-decagon-combo.csv',
                              ppi_path=f'{INPUT_FILE_PATH}/bio-decagon-ppi.csv',
@@ -61,6 +63,7 @@ if __name__ == '__main__':
                 val_test_size=val_test_size, batch_size=PARAMS['batch_size'],
                 num_epochs=PARAMS['epoch'], dropout=PARAMS['dropout'],
                 max_margin=PARAMS['max_margin'],
-                print_progress_every=150, adj_path='data/adj/real', log=args.log)
+                print_progress_every=150, adj_path='data/adj/real',
+                log=args.log, on_cpu=args.cpu)
     if args.log:
         neptune.stop()

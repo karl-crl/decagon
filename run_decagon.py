@@ -10,14 +10,13 @@ from decagon.deep.optimizer import DecagonOptimizer
 from decagon.deep.model import DecagonModel
 from decagon.deep.minibatch import EdgeMinibatchIterator
 import tensorflow as tf
-from typing import Dict
+from typing import Dict, NoReturn
 import time
 from sklearn import metrics
 from operator import itemgetter
-import  neptune
 
 tf.compat.v1.disable_eager_execution()
-#saver = tf.compat.v1.train.Saver()
+
 
 class RunDecagon:
     """
@@ -241,9 +240,11 @@ class RunDecagon:
         # TODO: разобрать
         self.feed_dict.update({self.placeholders['dropout']: 0})
         self.feed_dict.update({self.placeholders['batch_edge_type_idx']:
-                              self.minibatch.edge_type2idx[edge_type]})
-        self.feed_dict.update({self.placeholders['batch_row_edge_type']: edge_type[0]})
-        self.feed_dict.update({self.placeholders['batch_col_edge_type']: edge_type[1]})
+                                   self.minibatch.edge_type2idx[edge_type]})
+        self.feed_dict.update(
+            {self.placeholders['batch_row_edge_type']: edge_type[0]})
+        self.feed_dict.update(
+            {self.placeholders['batch_col_edge_type']: edge_type[1]})
         rec = sess.run(self.opt.predictions, feed_dict=self.feed_dict)
 
         def sigmoid(x):
@@ -278,7 +279,7 @@ class RunDecagon:
         preds_all = np.nan_to_num(preds_all)
         labels_all = np.hstack([np.ones(len(preds)), np.zeros(len(preds_neg))])
         predicted = \
-        list(zip(*sorted(predicted, reverse=True, key=itemgetter(0))))[1]
+            list(zip(*sorted(predicted, reverse=True, key=itemgetter(0))))[1]
 
         roc_sc = metrics.roc_auc_score(labels_all, preds_all)
         aupr_sc = metrics.average_precision_score(labels_all, preds_all)
@@ -287,25 +288,23 @@ class RunDecagon:
         return roc_sc, aupr_sc, apk_sc
 
     def _run_epoch(self, sess: tf.compat.v1.Session, dropout: float,
-                   print_progress_every: int, epoch: int, log: bool, saver) -> None:
+                   print_progress_every: int, epoch: int, log: bool
+                   ) -> NoReturn:
         """
-        Run one epoch
+        Run one epoch.
+
         Parameters
         ----------
-        sess: tf.compat.v1.Session
-            initialize tf session
-        dropout: float
+        sess : tf.compat.v1.Session
+            Initialize tf session.
+        dropout : float
             Dropout rate (1 - keep probability).
-        print_progress_every: int
+        print_progress_every : int
             Print statistic every print_progress_every iterations.
-        epoch: int
+        epoch : int
             Number of current epoch (for printing statistic).
         log : bool
-            Whether to log or not
-
-        Returns
-        -------
-
+            Whether to log or not.
         """
         self.minibatch.shuffle()
         itr = 0
@@ -322,13 +321,15 @@ class RunDecagon:
 
             # Training step: run single weight update
             outs = sess.run([self.opt.opt_op, self.opt.cost,
-                             self.opt.batch_edge_type_idx], feed_dict=self.feed_dict)
+                             self.opt.batch_edge_type_idx],
+                            feed_dict=self.feed_dict)
             train_cost = outs[1]
             batch_edge_type = outs[2]
 
             if itr % print_progress_every == 0:
                 val_auc, val_auprc, val_apk = self._get_accuracy_scores(
-                    sess, self.minibatch.val_edges, self.minibatch.val_edges_false,
+                    sess, self.minibatch.val_edges,
+                    self.minibatch.val_edges_false,
                     self.minibatch.idx2edge_type[
                         self.minibatch.current_edge_type_idx])
 
@@ -340,42 +341,47 @@ class RunDecagon:
                       "val_apk=", "{:.5f}".format(val_apk), "time=",
                       "{:.5f}".format(time.time() - t))
                 if log:
-                    neptune.log_metric("val_roc", val_auc, timestamp=time.time())
-                    neptune.log_metric("val_apk", val_apk, timestamp=time.time())
+                    import neptune
+                    neptune.log_metric("val_roc", val_auc,
+                                       timestamp=time.time())
+                    neptune.log_metric("val_apk", val_apk,
+                                       timestamp=time.time())
                     neptune.log_metric("val_auprc", val_auprc,
                                        timestamp=time.time())
                     neptune.log_metric("train_loss", train_cost,
                                        timestamp=time.time())
             itr += 1
 
-    def run(self, adj_path:str, path_to_split: str, val_test_size: float,
-            batch_size: int, num_epochs: int, dropout:float, max_margin: float,
-            print_progress_every: int, log: bool):
+    def run(self, adj_path: str, path_to_split: str, val_test_size: float,
+            batch_size: int, num_epochs: int, dropout: float, max_margin: float,
+            print_progress_every: int, log: bool, on_cpu: bool) -> NoReturn:
         """
         Run Decagon.
+
+
         Parameters
         ----------
-        adj_path: str
-            path for saving/loading adjacency matrices
-        path_to_split: str
+        adj_path : str
+            path for saving/loading adjacency matrices.
+        path_to_split : str
             path to save train, test and validate edges.
             If it consist needed edges, they will be loaded.
             Else they will be calculated and saved.
-        batch_size: int
+        batch_size : int
             Minibatch size.
-        val_test_size: float
+        val_test_size : float
             proportion to split edges into train, test and validate.
-        num_epochs: int
-            number of training epochs
-        dropout: float
+        num_epochs : int
+            number of training epochs.
+        dropout : float
             Dropout rate (1 - keep probability).
-        print_progress_every: int
-            Print statistic every print_progress_every iterations
+        print_progress_every : int
+            Print statistic every print_progress_every iterations.
+        log : bool
+            Whether to log or not.
+        on_cpu : bool
+            Run on cpu instead of gpu.
         max_margin
-
-        Returns
-        -------
-
         """
 
         # check if all path exists
@@ -384,6 +390,9 @@ class RunDecagon:
 
         if not os.path.exists(path_to_split):
             os.makedirs(path_to_split)
+
+        if on_cpu:
+            os.environ['CUDA_VISIBLE_DEVICES'] = ""
 
         self._adjacency(adj_path)
         self._nodes_features()
@@ -399,13 +408,15 @@ class RunDecagon:
         sess.run(tf.compat.v1.global_variables_initializer())
         self.feed_dict = {}
         for epoch in range(num_epochs):
-            self._run_epoch(sess, dropout, print_progress_every, epoch, log, saver)
+            self._run_epoch(sess, dropout, print_progress_every, epoch, log,
+                            saver)
             saver.save(sess, MODEL_SAVE_PATH)
         print("Optimization finished!")
-        #saver.save(sess, MODEL_SAVE_PATH)
+        # saver.save(sess, MODEL_SAVE_PATH)
         for et in range(self.num_edge_types):
             roc_score, auprc_score, apk_score = self._get_accuracy_scores(
-                sess, self.minibatch.test_edges, self.minibatch.test_edges_false,
+                sess, self.minibatch.test_edges,
+                self.minibatch.test_edges_false,
                 self.minibatch.idx2edge_type[et])
             print("Edge type=",
                   "[%02d, %02d, %02d]" % self.minibatch.idx2edge_type[et])
@@ -417,6 +428,7 @@ class RunDecagon:
                   "{:.5f}".format(apk_score))
             print()
         if log:
+            import neptune
             neptune.log_metric("ROC-AUC", roc_score)
             neptune.log_metric("AUPRC", auprc_score)
             neptune.log_metric("AP@k score", apk_score)
@@ -440,6 +452,3 @@ class RunDecagon:
         #     print("Edge type:", "%04d" % et, "Test AP@k score",
         #           "{:.5f}".format(apk_score))
         #     print()
-
-
-

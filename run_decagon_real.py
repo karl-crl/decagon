@@ -66,6 +66,23 @@ class RunDecagonReal(RunDecagon):
 
     def __init__(self, combo_path: str, ppi_path: str, mono_path: str,
                  targets_path: str, min_se_freq: int, min_se_freq_mono: int):
+        """
+        Initialize real data
+
+        Parameters
+        ----------
+        combo_path : str
+            Path to file with table drug-drug-side.
+        ppi_path : str
+            Path to file with ppi.
+        mono_path : str
+            Path to file with side effects of drugs (individual).
+        targets_path
+        min_se_freq : int
+            Only se with frequency >= min_se_freq will be saved.
+        min_se_freq_mono : int
+            Only individual se with frequency > min_se_freq_mono will be saved.
+        """
         super().__init__()
         frequent_combo_path = self._leave_frequent_se(combo_path, min_se_freq)
         self.drug_drug_net, self.combo2stitch, self.combo2se, self.se2name = \
@@ -80,7 +97,6 @@ class RunDecagonReal(RunDecagon):
         self.ordered_list_of_proteins = list(self.gene_net.nodes.keys())
 
         drugs_set = set(self.ordered_list_of_drugs)
-        # Only individual se with frequency > min_se_freq_mono will be saved.
         self.ordered_list_of_se_mono = [
             se_mono for se_mono, stitch_set in se2stitch.items() if
             len(stitch_set.intersection(drugs_set)) > min_se_freq_mono]

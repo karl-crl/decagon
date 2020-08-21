@@ -4,7 +4,6 @@ MIN_SIDE_EFFECT_FREQUENCY = 500
 # If side effect occures lesser than this, do not use triples
 # (drug1, drug2, side_effect) with such side effect
 
-# Model parameters
 PARAMS = {'neg_sample_size': 1,
               'learning_rate': 0.001,
               'epoch': 30,
@@ -15,9 +14,10 @@ PARAMS = {'neg_sample_size': 1,
               'max_margin': 0.1,
               'batch_size': 512,
               'bias': True}
+# Model parameters
 
 INPUT_FILE_PATH = "data/input"
+# Path to folder with input data.
 
 MODEL_SAVE_PATH = "data/output/saved_model/model.ckpt"
-
-FEED_DICT_PATH = "data/output/saved_model/feed_dick.pickle"
+# Where to save model during training

@@ -1,10 +1,11 @@
 import os
 import pickle
+from abc import ABCMeta
 
 import numpy as np
 import scipy.sparse as sp
 
-from constants import MODEL_SAVE_PATH, FEED_DICT_PATH
+from constants import MODEL_SAVE_PATH
 from decagon.utility import rank_metrics, preprocessing
 from decagon.deep.optimizer import DecagonOptimizer
 from decagon.deep.model import DecagonModel
@@ -18,53 +19,55 @@ from operator import itemgetter
 tf.compat.v1.disable_eager_execution()
 
 
-class RunDecagon:
+class RunDecagon(metaclass=ABCMeta):
     """
+    Abstract class of Decagon runner.
+    Different subclasses define specific behavior
+    (e.g. run on synthetic data or real).
+
+
     Attributes
     ----------
-    adj_mats: Dict[Tuple[int, int], List[sp.csr_matrix]]
-    degrees: Dict[int, List[int]]
-    edge_type2dim: Dict[Tuple[int, int], List[int]
-    edge_type2decoder: Dict[Tuple[int, int], str]
-    edge_types: Dict[Tuple[int, int], int]
-    num_edge_types: int
-    num_feat: Dict[int, int]
-    nonzero_feat: Dict[int, int]
-    feat: Dict[int, sp.csr_matrix]
-
-    minibatch: EdgeMinibatchIterator
-    placeholders: Dict[str, tf.compat.v1.placeholder]
-    model: DecagonModel
-    opt: DecagonOptimizer
+    adj_mats : Dict[Tuple[int, int], List[sp.csr_matrix]]
+    degrees : Dict[int, List[int]]
+    edge_type2dim : Dict[Tuple[int, int], List[int]
+    edge_type2decoder : Dict[Tuple[int, int], str]
+    edge_types : Dict[Tuple[int, int], int]
+    num_edge_types : int
+    num_feat : Dict[int, int]
+    nonzero_feat : Dict[int, int]
+    feat : Dict[int, sp.csr_matrix]
+    minibatch : EdgeMinibatchIterator
+    placeholders : Dict[str, tf.compat.v1.placeholder]
+    model : DecagonModel
+    opt : DecagonOptimizer
     """
 
     def __init__(self):
         pass
 
-    def _adjacency(self, adj_path: str) -> None:
+    def _adjacency(self, adj_path: str) -> NoReturn:
         """
-        Create self.adj_mats, self.degrees
+        Create self.adj_mats, self.degrees.
+
         Parameters
         ----------
-        adj_path: str
-            path for saving/loading adjacency matrices
-
-        Returns
-        -------
+        adj_path : str
+            path for saving/loading adjacency matrices.
 
         Notes
         -----
         self.adj_mats: Dict[Tuple[int, int], List[sp.csr_matrix]]
-            from edge type to list of adjacency matrices for each edge class
+            From edge type to list of adjacency matrices for each edge class
             (e.g. (1, 1): list of drug-drug adjacency matrices for each se class)
             In our case all matrix in adj_mats are symmetric
         self.degrees: Dict[int, List[int]]
-            number of connections for each node (0: genes, 1: drugs)
+            Number of connections for each node (0: genes, 1: drugs)
 
         """
         raise NotImplementedError()
 
-    def _nodes_features(self) -> None:
+    def _nodes_features(self) -> NoReturn:
         """
         Create self.num_feat, self.nonzero_feat, self.feat.
 
@@ -74,39 +77,38 @@ class RunDecagon:
         Notes
         -----
         One-hot encoding as genes features.
-        Binary vectors with presence of different side effects as drugs features
-        self.num_feat: Dict[int, int]
+        Binary vectors with presence of different side effects as drugs features.
+        self.num_feat : Dict[int, int]
             number of elements in feature vector for 0: -genes, for 1: -drugs.
-        self.nonzero_feat: Dict[int, int]
+        self.nonzero_feat : Dict[int, int]
             number of all features for 0: -gene and 1: -drug nodes.
             All features should be nonzero! ????????????
             TODO: What to do with zero features??
             e.g., it is in format 0: num of genes in graph, 1: num of drugs.
-        self.feat: Dict[int, sp.csr_matrix]
+        self.feat : Dict[int, sp.csr_matrix]
             from edge type (0 = gene, 1 = drug) to feature matrix.
             row in feature matrix = embedding of one node.
+
         """
         raise NotImplementedError()
 
-    def _edge_types_info(self) -> None:
+    def _edge_types_info(self) -> NoReturn:
         """
         Create self.edge_type2dim, self.edge_type2decoder, self.edge_types,
-        self.num_edge_types
-        Returns
-        -------
+        self.num_edge_types.
 
         Notes
         -----
-        self.edge_type2dim: Dict[Tuple[int, int], List[int]
-            from edge type to list of shapes all its adjacency matrices.
-        self.edge_type2decoder: Dict[Tuple[int, int], str]
-            from edge type to decoder type
-            (we use different decompositions for different edges types)
-        self.edge_types: Dict[Tuple[int, int], int]
-            from edge type to number of classes of these edge type
-            (e. g. (1, 1): number of se)
-        self.num_edge_types: int
-            number of all edge types (considering all classes)
+        self.edge_type2dim : Dict[Tuple[int, int], List[int]
+            From edge type to list of shapes all its adjacency matrices.
+        self.edge_type2decoder : Dict[Tuple[int, int], str]
+            From edge type to decoder type
+            (we use different decompositions for different edges types).
+        self.edge_types : Dict[Tuple[int, int], int]
+            From edge type to number of classes of these edge type
+            (e. g. (1, 1): number of se).
+        self.num_edge_types : int
+            Number of all edge types (considering all classes).
 
         """
         self.edge_type2dim = {k: [adj.shape for adj in adjs] for k, adjs in
@@ -123,22 +125,20 @@ class RunDecagon:
         print(f'Edge types {self.num_edge_types}')
 
     def _minibatch_iterator_init(self, path_to_split: str, batch_size: int,
-                                 val_test_size: float) -> None:
+                                 val_test_size: float) -> NoReturn:
         """
-        Create minibatch iterator (self.minibatch)
+        Create minibatch iterator (self.minibatch).
+
         Parameters
         ----------
-        path_to_split: str
-            path to save train, test and validate edges.
+        path_to_split : str
+            Path to save train, test and validate edges.
             If it consist needed edges, they will be loaded.
             Else they will be calculated and saved.
-        batch_size: int
+        batch_size : int
             Minibatch size.
-        val_test_size: float
-            proportion to split edges into train, test and validate.
-
-        Returns
-        -------
+        val_test_size : float
+            Proportion to split edges into train, test and validate.
 
         """
         print('Create minibatch iterator')
@@ -154,16 +154,14 @@ class RunDecagon:
             need_sample_edges=need_sample_edges
         )
 
-    def _construct_placeholders(self) -> None:
+    def _construct_placeholders(self) -> NoReturn:
         """
         Create self.placeholders.
-
-        Returns
-        -------
 
         Notes
         _____
         Placeholders - input data in tf1.
+
         """
         print("Defining placeholders")
         self.placeholders = {
@@ -192,11 +190,9 @@ class RunDecagon:
                                  for i, _ in self.edge_types}
         self.placeholders.update(features_placeholders)
 
-    def _model_init(self) -> None:
+    def _model_init(self) -> NoReturn:
         """
-        Create self.model
-        Returns
-        -------
+        Create self.model.
 
         """
         print("Create model")
@@ -208,18 +204,16 @@ class RunDecagon:
             decoders=self.edge_type2decoder,
         )
 
-    def _optimizer_init(self, batch_size: int, max_margin: float) -> None:
+    def _optimizer_init(self, batch_size: int, max_margin: float) -> NoReturn:
         """
         Create self.opt.
+
         Parameters
         ----------
-        batch_size: int
+        batch_size : int
             Minibatch size.
-        max_margin: float
+        max_margin : float
             Max margin parameter in hinge loss.
-
-        Returns
-        -------
 
         """
         print("Create optimizer")
@@ -358,7 +352,6 @@ class RunDecagon:
         """
         Run Decagon.
 
-
         Parameters
         ----------
         adj_path : str
@@ -382,6 +375,7 @@ class RunDecagon:
         on_cpu : bool
             Run on cpu instead of gpu.
         max_margin
+
         """
 
         # check if all path exists
@@ -408,8 +402,7 @@ class RunDecagon:
         sess.run(tf.compat.v1.global_variables_initializer())
         self.feed_dict = {}
         for epoch in range(num_epochs):
-            self._run_epoch(sess, dropout, print_progress_every, epoch, log,
-                            saver)
+            self._run_epoch(sess, dropout, print_progress_every, epoch, log)
             saver.save(sess, MODEL_SAVE_PATH)
         print("Optimization finished!")
         # saver.save(sess, MODEL_SAVE_PATH)

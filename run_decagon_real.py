@@ -5,60 +5,62 @@ import numpy as np
 import scipy.sparse as sp
 import pandas as pd
 from decagon.utility import preprocessing
-from typing import Dict
+from typing import Dict, NoReturn
 from run_decagon import RunDecagon
 
 
 class RunDecagonReal(RunDecagon):
     """
+    Decagon runner on real data.
+
+
     Attributes
     ----------
-    drug_drug_net: nx.Graph
-        drugs as nodes, se as edges.
-    combo2stich: Dict[str, np.array]
-        from drugs combo name to np.array of two their names.
-    combo2se: Dict[str, set]
-        from drugs combo name to set of common se of two drugs.
-    se2name: Dict[str, str]
-        from common se (key) to its real name.
-    gene_net: nx.Graph
-        genes (proteins) as nodes, protein-protein-interactions as edges
-    node2idx: Dict[int, int]
-        from gene ID (entrez) to its number
-    stitch2se: Dict[str, set]
-        from drug (individual) stitch id to a set of its se IDs
-    se2name_mono: Dict[str, str]
-        from individual se ID to its real name
-    stitch2proteins: Dict[[str, set]
-        from stitch ids (drug) to protein (gene) ids
-    ordered_list_of_drugs: List[str]
-        ID of all drugs in mega graph
-    ordered_list_of_se: List[str]
-        ID of all se in mega graph
-    ordered_list_of_proteins: List[int]
-        Entrez ID of all genes in mega graph
-    self.ordered_list_of_se_mono: List[str]
-        ID of all individual  se in drugs embeddings
+    drug_drug_net : nx.Graph
+        Drugs as nodes, se as edges.
+    combo2stich : Dict[str, np.array]
+        From drugs combo name to np.array of two their names.
+    combo2se : Dict[str, set]
+        From drugs combo name to set of common se of two drugs.
+    se2name : Dict[str, str]
+        From common se (key) to its real name.
+    gene_net : nx.Graph
+        Genes (proteins) as nodes, protein-protein-interactions as edges.
+    node2idx : Dict[int, int]
+        From gene ID (entrez) to its number.
+    stitch2se : Dict[str, set]
+        From drug (individual) stitch id to a set of its se IDs.
+    se2name_mono : Dict[str, str]
+        From individual se ID to its real name.
+    stitch2proteins : Dict[[str, set]
+        From stitch ids (drug) to protein (gene) ids.
+    ordered_list_of_drugs : List[str]
+        ID of all drugs in mega graph.
+    ordered_list_of_se : List[str]
+        ID of all se in mega graph.
+    ordered_list_of_proteins : List[int]
+        Entrez ID of all genes in mega graph.
+    self.ordered_list_of_se_mono : List[str]
+        ID of all individual  se in drugs embeddings.
 
-    adj_mats: Dict[Tuple[int, int], List[sp.csr_matrix]]
-        from edge type to list of adjacency matrices for each edge class
-        (e.g. (1, 1): list of drug-drug adjacency matrices for each se class)
-        In our case all matrix in adj_mats are symmetric
-    degrees: Dict[int, List[int]]
-        number of connections for each node (0: genes, 1: drugs)
-
-    num_feat: Dict[int, int]
-        number of elements in feature vector for 0: -genes and for 1: -drugs.
-    nonzero_feat: Dict[int, int]
-        number of all features for 0: -gene and 1: -drug nodes.
+    adj_mats : Dict[Tuple[int, int], List[sp.csr_matrix]]
+        From edge type to list of adjacency matrices for each edge class
+        (e.g. (1, 1): list of drug-drug adjacency matrices for each se class).
+        In our case all matrix in adj_mats are symmetric.
+    degrees : Dict[int, List[int]]
+        Number of connections for each node (0: genes, 1: drugs).
+    num_feat : Dict[int, int]
+        Number of elements in feature vector for 0: -genes and for 1: -drugs.
+    nonzero_feat : Dict[int, int]
+        Number of all features for 0: -gene and 1: -drug nodes.
         All features should be nonzero! ????????????
         TODO: What to do with zero features??
         e.g., it is in format 0: num of genes in graph, 1: num of drugs.
-    feat: Dict[int, sp.csr_matrix]
-        from edge type (0 = gene, 1 = drug) to feature matrix.
-        row in feature matrix = embedding of one node.
+    feat : Dict[int, sp.csr_matrix]
+        From edge type (0 = gene, 1 = drug) to feature matrix.
+        Row in feature matrix = embedding of one node.
 
-    (Another attributes see in parent class)
+    (Other attributes see in parent class)
 
     """
 
@@ -86,17 +88,17 @@ class RunDecagonReal(RunDecagon):
     @staticmethod
     def _leave_frequent_se(combo_path: str, min_se_freq: int) -> str:
         """
-        Create pre-processed file that only has frequent side effects
+        Create pre-processed file that only has frequent side effects.
 
         Parameters
         ----------
-        min_se_freq: int
+        min_se_freq : int
             Only se with frequency >= min_se_freq will be saved.
 
         Returns
         -------
         str
-            path to combo data considering only frequent se.
+            Path to combo data considering only frequent se.
         """
         all_combo_df = pd.read_csv(combo_path)
         se_freqs = all_combo_df["Polypharmacy Side Effect"].value_counts()
@@ -109,27 +111,24 @@ class RunDecagonReal(RunDecagon):
         frequent_combo_df.to_csv(frequent_combo_path, index=False)
         return frequent_combo_path
 
-    def _adjacency(self, adj_path: str) -> None:
+    def _adjacency(self, adj_path: str) -> NoReturn:
         """
         Create self.adj_mats and self.degrees.
 
         Parameters
         ----------
-        adj_path: str
+        adj_path : str
             Try to use drug-drug adjacency matrices saved in adj_path.
             If this is not possible, calculate it and save in adj_path.
 
-        Returns
-        -------
-
         Notes
         -----
-        self.adj_mats: Dict[Tuple[int, int], List[sp.csr_matrix]]
-            from edge type to list of adjacency matrices for each edge class
-            (e.g. (1, 1): list of drug-drug adjacency matrices for each se class)
-            In our case all matrix in adj_mats are symmetric
-        self.degrees: Dict[int, List[int]]
-            number of connections for each node (0: genes, 1: drugs)
+        self.adj_mats : Dict[Tuple[int, int], List[sp.csr_matrix]]
+            From edge type to list of adjacency matrices for each edge class
+            (e.g. (1, 1): list of drug-drug adjacency matrices for each se class).
+            In our case all matrix in adj_mats are symmetric.
+        self.degrees : Dict[int, List[int]]
+            Number of connections for each node (0: genes, 1: drugs).
 
         """
         gene_gene_adj = nx.adjacency_matrix(self.gene_net)
@@ -177,26 +176,24 @@ class RunDecagonReal(RunDecagon):
             1: drug_degrees_list,
         }
 
-    def _nodes_features(self) -> None:
+    def _nodes_features(self) -> NoReturn:
         """
         Create self.num_feat, self.nonzero_feat, self.feat.
-        Returns
-        -------
 
         Notes
         -----
         One-hot encoding as genes features.
-        Binary vectors with presence of different side effects as drugs features
-        self.num_feat: Dict[int, int]
-            number of elements in feature vector for 0: -genes, for 1: -drugs.
-        self.nonzero_feat: Dict[int, int]
-            number of all features for 0: -gene and 1: -drug nodes.
+        Binary vectors with presence of different side effects as drugs features.
+        self.num_feat : Dict[int, int]
+            Number of elements in feature vector for 0: -genes, for 1: -drugs.
+        self.nonzero_feat : Dict[int, int]
+            Number of all features for 0: -gene and 1: -drug nodes.
             All features should be nonzero! ????????????
             TODO: What to do with zero features??
             e.g., it is in format 0: num of genes in graph, 1: num of drugs.
-        self.feat: Dict[int, sp.csr_matrix]
-            from edge type (0 = gene, 1 = drug) to feature matrix.
-            row in feature matrix = embedding of one node.
+        self.feat : Dict[int, sp.csr_matrix]
+            From edge type (0 = gene, 1 = drug) to feature matrix.
+            Row in feature matrix = embedding of one node.
 
         """
         # One-hot for genes

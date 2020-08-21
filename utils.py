@@ -1,23 +1,28 @@
 from collections import defaultdict
 import networkx as nx
 import pandas as pd
-from typing import Tuple
+from typing import Tuple, Dict
 
 
 def load_combo_se(combo_path: str = 'bio-decagon-combo.csv') -> \
-        Tuple[nx.Graph, dict, dict, dict]:
+        Tuple[nx.Graph,  Dict[str, str],  Dict[str, str],  Dict[str, str]]:
     """
 
     Parameters
     ----------
-    combo_path: path to file with table drug-drug-side
+    combo_path: str
+        Path to file with table drug-drug-side.
 
     Returns
     -------
-        1. drug-drug network
-        2. dictionary from combination ID to pair of stitch IDs
-        3. dictionary from combination ID to set of polypharmacy side effects
-        4. dictionary from side effects to their names
+    nx.Graph
+        Drug-drug network.
+    Dict[str, str]
+        From combination ID to pair of stitch IDs.
+    Dict[str, str]
+        From combination ID to set of polypharmacy side effects.
+    Dict[str, str]
+        From side effects to their names.
     """
     print(f'Reading: {combo_path}')
     combo_df = pd.read_csv(combo_path, delimiter=',', header=0)
@@ -50,17 +55,20 @@ def load_combo_se(combo_path: str = 'bio-decagon-combo.csv') -> \
     return net, combo2stitch, combo2se, se2name
 
 
-def load_ppi(ppi_path: str = 'bio-decagon-ppi.csv') -> Tuple[nx.Graph, dict]:
+def load_ppi(ppi_path: str = 'bio-decagon-ppi.csv') -> Tuple[nx.Graph, Dict[int, int]]:
     """
 
     Parameters
     ----------
-    ppi_path: Path to file with ppi
+    ppi_path: str
+        Path to file with ppi.
 
     Returns
     -------
-        1. protein-protein network
-        2. dictionary that maps each gene ID to a number
+    nx.Graph
+        Protein-protein network.
+    Dict[int, int]
+        Dictionary that maps each gene ID (Entrez) to a number.
 
     """
     print(f'Reading: {ppi_path}')
@@ -79,17 +87,23 @@ def load_ppi(ppi_path: str = 'bio-decagon-ppi.csv') -> Tuple[nx.Graph, dict]:
     return net, node2idx
 
 
-def load_mono_se(mono_path:str='bio-decagon-mono.csv') -> Tuple[dict, dict]:
+def load_mono_se(mono_path:str='bio-decagon-mono.csv'
+                 ) -> Tuple[Dict[str, set], Dict[str, str], Dict[str, set]]:
     """
 
     Parameters
     ----------
-    mono_path: path to file with side effects of drugs (individual)
+    mono_path: str
+        Path to file with side effects of drugs (individual).
 
     Returns
     -------
-        1. dictionary from Stitch ID to set of individual side effects
-        2. dictionary from side effects to their names
+    Dict[str, set]
+        From Stitch ID to set of individual side effects.
+    Dict[str, str]
+        From individual side effects to their names.
+    Dict[str, set]
+        From individual se to set of corresponding Stitch ID.
 
     """
     print(f'Reading: {mono_path}')
@@ -109,17 +123,18 @@ def load_mono_se(mono_path:str='bio-decagon-mono.csv') -> Tuple[dict, dict]:
     return stitch2se, se2name, se2stitch
 
 
-def load_targets(targets_path: str = 'bio-decagon-targets.csv') -> dict:
+def load_targets(targets_path: str = 'bio-decagon-targets.csv') -> Dict[str, set]:
     """
 
     Parameters
     ----------
-    target_path: path to drug-target associations
+    targets_path: str
+        Path to drug-target associations.
 
     Returns
     -------
-    dictionary 
-        from Stitch ID to set of drug targets
+    Dict[str, set]
+        From Stitch ID to set of drug targets.
 
     """
     print(f'Reading: {targets_path}')
@@ -139,13 +154,15 @@ def load_categories(se_categories_path:str=
 
     Parameters
     ----------
-    se_categories_path: path to data with side effects and corresponded disease
-                        classes
+    se_categories_path: str
+        Path to data with side effects and corresponded disease classes.
 
     Returns
     -------
-        1. dictionary from side effect to disease class of that side effect
-        2. dictionary from side effects to their names
+    Dict[str, str]
+        From side effect to disease class of that side effect.
+    Dict[str, str]
+        From side effects to their names.
 
     """
     print(f'Reading: {se_categories_path}')

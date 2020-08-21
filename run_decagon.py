@@ -1,20 +1,19 @@
 import os
-import pickle
 from abc import ABCMeta
 
 import numpy as np
 import scipy.sparse as sp
 
 from constants import MODEL_SAVE_PATH
-from decagon.utility import rank_metrics, preprocessing
+from decagon.utility import rank_metrics
 from decagon.deep.optimizer import DecagonOptimizer
 from decagon.deep.model import DecagonModel
 from decagon.deep.minibatch import EdgeMinibatchIterator
 import tensorflow as tf
-from typing import Dict, NoReturn
+from typing import Dict, Tuple, List, NoReturn
 import time
+from scipy.special import expit
 from sklearn import metrics
-from operator import itemgetter
 
 tf.compat.v1.disable_eager_execution()
 
@@ -29,18 +28,39 @@ class RunDecagon(metaclass=ABCMeta):
     Attributes
     ----------
     adj_mats : Dict[Tuple[int, int], List[sp.csr_matrix]]
+        From edge type to list of adjacency matrices for each edge class
+        (e.g. (1, 1): list of drug-drug adjacency matrices for each se class).
+        In our case all matrix in adj_mats are symmetric.
     degrees : Dict[int, List[int]]
+        Number of connections for each node (0: genes, 1: drugs).
+
     edge_type2dim : Dict[Tuple[int, int], List[int]
+        From edge type to list of shapes all its adjacency matrices.
     edge_type2decoder : Dict[Tuple[int, int], str]
+        From edge type to decoder type
+        (we use different decompositions for different edges types).
     edge_types : Dict[Tuple[int, int], int]
+        From edge type to number of classes of these edge type
+        (e. g. (1, 1): number of se).
     num_edge_types : int
+        Number of all edge types (considering all classes).
+
     num_feat : Dict[int, int]
+        Number of elements in feature vector for 0: -genes, for 1: -drugs.
     nonzero_feat : Dict[int, int]
+        Number of all features for 0: -gene and 1: -drug nodes.
     feat : Dict[int, sp.csr_matrix]
+        From edge type (0 = gene, 1 = drug) to feature matrix.
+        Row in feature matrix = embedding of one node.
+
     minibatch : EdgeMinibatchIterator
+        Minibatch iterator.
     placeholders : Dict[str, tf.compat.v1.placeholder]
+        Input data for decagon model.
     model : DecagonModel
+        Decagon model (encoder + decoder).
     opt : DecagonOptimizer
+        Optimizer of decagon weigts.
     """
 
     def __init__(self):
@@ -76,18 +96,16 @@ class RunDecagon(metaclass=ABCMeta):
 
         Notes
         -----
-        One-hot encoding as genes features.
-        Binary vectors with presence of different side effects as drugs features.
         self.num_feat : Dict[int, int]
-            number of elements in feature vector for 0: -genes, for 1: -drugs.
+            Number of elements in feature vector for 0: -genes, for 1: -drugs.
         self.nonzero_feat : Dict[int, int]
-            number of all features for 0: -gene and 1: -drug nodes.
-            All features should be nonzero! ????????????
+            Number of all features for 0: -gene and 1: -drug nodes.
+            All features should be nonzero!??
             TODO: What to do with zero features??
-            e.g., it is in format 0: num of genes in graph, 1: num of drugs.
+            E.g., it is in format 0: num of genes in graph, 1: num of drugs.
         self.feat : Dict[int, sp.csr_matrix]
-            from edge type (0 = gene, 1 = drug) to feature matrix.
-            row in feature matrix = embedding of one node.
+            From edge type (0 = gene, 1 = drug) to feature matrix.
+            Row in feature matrix = embedding of one node.
 
         """
         raise NotImplementedError()
@@ -230,53 +248,63 @@ class RunDecagon(metaclass=ABCMeta):
                 margin=max_margin
             )
 
-    def _get_accuracy_scores(self, sess, edges_pos, edges_neg, edge_type):
-        # TODO: разобрать
+    def _get_accuracy_scores(self, sess: tf.compat.v1.Session,
+                             edges_pos: Dict[Tuple[int, int], List[np.array]],
+                             edges_neg: Dict[Tuple[int, int], List[np.array]],
+                             edge_type: Tuple[int, int, int]):
+        """
+        Calculate metrics (AUROC, AUPRC, AP@50)
+
+        Parameters
+        ----------
+        sess : tf.compat.v1.Session
+            Initialized tf session.
+        edges_pos : Dict[Tuple[int, int], List[np.array]]
+            From edge type to np.arrays of real edges for every edge class in this type.
+        edges_neg : Dict[Tuple[int, int], List[np.array]]
+            From edge type to np.arrays of fake edges for every edge class in this type.
+        edge_type : Tuple[int, int, int]
+            Edge type with class.
+            Two first elements --- edge type, last element --- class in this type.
+        Returns
+        -------
+
+        """
         self.feed_dict.update({self.placeholders['dropout']: 0})
         self.feed_dict.update({self.placeholders['batch_edge_type_idx']:
                                    self.minibatch.edge_type2idx[edge_type]})
-        self.feed_dict.update(
-            {self.placeholders['batch_row_edge_type']: edge_type[0]})
-        self.feed_dict.update(
-            {self.placeholders['batch_col_edge_type']: edge_type[1]})
+        self.feed_dict.update({self.placeholders['batch_row_edge_type']: edge_type[0]})
+        self.feed_dict.update({self.placeholders['batch_col_edge_type']: edge_type[1]})
+
         rec = sess.run(self.opt.predictions, feed_dict=self.feed_dict)
 
-        def sigmoid(x):
-            return 1. / (1 + np.exp(-x))
+        uv = edges_pos[edge_type[:2]][edge_type[2]]
+        u = uv[:, 0]
+        v = uv[:, 1]
+        preds = expit(rec[u, v])
+        assert np.all(self.adj_mats[edge_type[:2]][edge_type[2]][u, v] == 1), \
+            'Positive examples (real edges) are not exist'
 
-        # Predict on test set of edges
-        preds = []
-        actual = []
-        predicted = []
-        edge_ind = 0
-        for u, v in edges_pos[edge_type[:2]][edge_type[2]]:
-            score = sigmoid(rec[u, v])
-            preds.append(score)
-            assert self.adj_mats[edge_type[:2]][edge_type[2]][
-                       u, v] == 1, 'Problem 1'
+        uv = edges_neg[edge_type[:2]][edge_type[2]]
+        u = uv[:, 0]
+        v = uv[:, 1]
+        preds_neg = expit(rec[u, v])
+        assert np.all(self.adj_mats[edge_type[:2]][edge_type[2]][u, v] == 0), \
+            'Negative examples (fake edges) are real'
 
-            actual.append(edge_ind)
-            predicted.append((score, edge_ind))
-            edge_ind += 1
-
-        preds_neg = []
-        for u, v in edges_neg[edge_type[:2]][edge_type[2]]:
-            score = sigmoid(rec[u, v])
-            preds_neg.append(score)
-            assert self.adj_mats[edge_type[:2]][edge_type[2]][
-                       u, v] == 0, 'Problem 0'
-
-            predicted.append((score, edge_ind))
-            edge_ind += 1
-
+        # Predicted probs
         preds_all = np.hstack([preds, preds_neg])
-        preds_all = np.nan_to_num(preds_all)
+        # preds_all = np.nan_to_num(preds_all)
+        # Real probs: 1 for pos, 0 for neg
         labels_all = np.hstack([np.ones(len(preds)), np.zeros(len(preds_neg))])
-        predicted = \
-            list(zip(*sorted(predicted, reverse=True, key=itemgetter(0))))[1]
-
         roc_sc = metrics.roc_auc_score(labels_all, preds_all)
         aupr_sc = metrics.average_precision_score(labels_all, preds_all)
+
+        # Real existing edges (local indexes)
+        actual = range(len(preds))
+        # All local indexes with probability (sorted)
+        predicted = sorted(range(len(preds_all)), reverse=True,
+                           key=lambda i: preds_all[i])
         apk_sc = rank_metrics.apk(actual, predicted, k=50)
 
         return roc_sc, aupr_sc, apk_sc
@@ -290,7 +318,7 @@ class RunDecagon(metaclass=ABCMeta):
         Parameters
         ----------
         sess : tf.compat.v1.Session
-            Initialize tf session.
+            Initialized tf session.
         dropout : float
             Dropout rate (1 - keep probability).
         print_progress_every : int
@@ -374,7 +402,9 @@ class RunDecagon(metaclass=ABCMeta):
             Whether to log or not.
         on_cpu : bool
             Run on cpu instead of gpu.
-        max_margin
+        max_margin : float
+            Max margin parameter in hinge loss.
+
 
         """
 

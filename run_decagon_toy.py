@@ -14,20 +14,45 @@ class RunDecagonToy(RunDecagon):
     Attributes
     ----------
     n_genes : int
+        Number of generated genes.
     n_drugs : int
-    n_drug_rel_types : int
+        Number of generated drugs.
+    n_drugdrug_rel_types : int
+        Number of different classes of generated drug-drug edges (i.e. number of se).
     gene_net : nx.Graph
+        Generated protein-protein network.
+
     adj_mats : Dict[Tuple[int, int], List[sp.csr_matrix]]
+        From edge type to list of adjacency matrices for each edge class
+        (e.g. (1, 1): list of drug-drug adjacency matrices for each se class).
+        In our case all matrix in adj_mats are symmetric.
     degrees : Dict[int, List[int]]
+        Number of connections for each node (0: genes, 1: drugs).
     num_feat : Dict[int, int]
+        Number of elements in feature vector for 0: -genes, for 1: -drugs.
     nonzero_feat : Dict[int, int]
+        Number of all features for 0: -gene and 1: -drug nodes.
     feat : Dict[int, sp.csr_matrix]
+        From edge type (0 = gene, 1 = drug) to feature matrix.
+
     (Other attributes see in parent class)
 
     """
 
     def __init__(self, n_genes:int = 500, n_drugs:int = 400,
                  n_drugdrug_rel_types: int = 3):
+        """
+        Generate toy data
+
+        Parameters
+        ----------
+        n_genes: int
+            Number of generated genes.
+        n_drugs: int
+            Number of generated drugs.
+        n_drugdrug_rel_types: int
+            Number of different classes of generated drug-drug edges (i.e. number of se).
+        """
         super().__init__()
         self.n_genes = n_genes
         self.n_drugs = n_drugs
@@ -83,15 +108,12 @@ class RunDecagonToy(RunDecagon):
 
         Notes
         -----
-        One-hot encoding as genes features.
-        Binary vectors with presence of different side effects as drugs features.
+        One-hot encoding as genes and drugs features
+        (separately one-hot for different nodes types).
         self.num_feat : Dict[int, int]
             Number of elements in feature vector for 0: -genes, for 1: -drugs.
         self.nonzero_feat : Dict[int, int]
             Number of all features for 0: -gene and 1: -drug nodes.
-            All features should be nonzero! ????????????
-            TODO: What to do with zero features??
-            e.g., it is in format 0: num of genes in graph, 1: num of drugs.
         self.feat : Dict[int, sp.csr_matrix]
             From edge type (0 = gene, 1 = drug) to feature matrix.
             Row in feature matrix = embedding of one node.

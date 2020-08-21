@@ -13,6 +13,7 @@ from decagon.deep.minibatch import EdgeMinibatchIterator
 import tensorflow as tf
 from typing import Dict, NoReturn
 import time
+from scipy.special import expit
 from sklearn import metrics
 from operator import itemgetter
 
@@ -231,52 +232,41 @@ class RunDecagon(metaclass=ABCMeta):
             )
 
     def _get_accuracy_scores(self, sess, edges_pos, edges_neg, edge_type):
-        # TODO: разобрать
         self.feed_dict.update({self.placeholders['dropout']: 0})
         self.feed_dict.update({self.placeholders['batch_edge_type_idx']:
                                    self.minibatch.edge_type2idx[edge_type]})
-        self.feed_dict.update(
-            {self.placeholders['batch_row_edge_type']: edge_type[0]})
-        self.feed_dict.update(
-            {self.placeholders['batch_col_edge_type']: edge_type[1]})
+        self.feed_dict.update({self.placeholders['batch_row_edge_type']: edge_type[0]})
+        self.feed_dict.update({self.placeholders['batch_col_edge_type']: edge_type[1]})
+
         rec = sess.run(self.opt.predictions, feed_dict=self.feed_dict)
 
-        def sigmoid(x):
-            return 1. / (1 + np.exp(-x))
+        uv = edges_pos[edge_type[:2]][edge_type[2]]
+        u = uv[:, 0]
+        v = uv[:, 1]
+        preds = expit(rec[u, v])
+        assert np.all(self.adj_mats[edge_type[:2]][edge_type[2]][u, v] == 1), \
+            'Positive examples (real edges) are not exist'
 
-        # Predict on test set of edges
-        preds = []
-        actual = []
-        predicted = []
-        edge_ind = 0
-        for u, v in edges_pos[edge_type[:2]][edge_type[2]]:
-            score = sigmoid(rec[u, v])
-            preds.append(score)
-            assert self.adj_mats[edge_type[:2]][edge_type[2]][
-                       u, v] == 1, 'Problem 1'
+        uv = edges_neg[edge_type[:2]][edge_type[2]]
+        u = uv[:, 0]
+        v = uv[:, 1]
+        preds_neg = expit(rec[u, v])
+        assert np.all(self.adj_mats[edge_type[:2]][edge_type[2]][u, v] == 0), \
+            'Negative examples (fake edges) are real'
 
-            actual.append(edge_ind)
-            predicted.append((score, edge_ind))
-            edge_ind += 1
-
-        preds_neg = []
-        for u, v in edges_neg[edge_type[:2]][edge_type[2]]:
-            score = sigmoid(rec[u, v])
-            preds_neg.append(score)
-            assert self.adj_mats[edge_type[:2]][edge_type[2]][
-                       u, v] == 0, 'Problem 0'
-
-            predicted.append((score, edge_ind))
-            edge_ind += 1
-
+        # Predicted probs
         preds_all = np.hstack([preds, preds_neg])
-        preds_all = np.nan_to_num(preds_all)
+        # preds_all = np.nan_to_num(preds_all)
+        # Real probs: 1 for pos, 0 for neg
         labels_all = np.hstack([np.ones(len(preds)), np.zeros(len(preds_neg))])
-        predicted = \
-            list(zip(*sorted(predicted, reverse=True, key=itemgetter(0))))[1]
-
         roc_sc = metrics.roc_auc_score(labels_all, preds_all)
         aupr_sc = metrics.average_precision_score(labels_all, preds_all)
+
+        # Real existing edges (local indexes)
+        actual = range(len(preds))
+        # All local indexes with probability (sorted)
+        predicted = sorted(range(len(preds_all)), reverse=True,
+                           key=lambda i: preds_all[i])
         apk_sc = rank_metrics.apk(actual, predicted, k=50)
 
         return roc_sc, aupr_sc, apk_sc
@@ -322,6 +312,20 @@ class RunDecagon(metaclass=ABCMeta):
 
             if itr % print_progress_every == 0:
                 val_auc, val_auprc, val_apk = self._get_accuracy_scores(
+                    sess, self.minibatch.val_edges,
+                    self.minibatch.val_edges_false,
+                    self.minibatch.idx2edge_type[
+                        self.minibatch.current_edge_type_idx])
+
+                print("Epoch:", "%04d" % (epoch + 1), "Iter:",
+                      "%04d" % (itr + 1), "Edge:", "%04d" % batch_edge_type,
+                      "train_loss=", "{:.5f}".format(train_cost),
+                      "val_roc=", "{:.5f}".format(val_auc), "val_auprc=",
+                      "{:.5f}".format(val_auprc),
+                      "val_apk=", "{:.5f}".format(val_apk), "time=",
+                      "{:.5f}".format(time.time() - t))
+
+                val_auc, val_auprc, val_apk = self._get_accuracy_scores2(
                     sess, self.minibatch.val_edges,
                     self.minibatch.val_edges_false,
                     self.minibatch.idx2edge_type[

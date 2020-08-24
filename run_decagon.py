@@ -171,6 +171,10 @@ class RunDecagon(metaclass=ABCMeta):
             path_to_split=path_to_split,
             need_sample_edges=need_sample_edges
         )
+        print(self.minibatch.train_edges[(0, 0)][0].shape)
+        print(self.minibatch.train_edges[(0, 1)][0].shape)
+        print(self.minibatch.train_edges[(1, 0)][0].shape)
+        print(sum([len(ar) for ar in self.minibatch.train_edges[(1, 1)]]))
 
     def _construct_placeholders(self) -> NoReturn:
         """
@@ -330,12 +334,11 @@ class RunDecagon(metaclass=ABCMeta):
         """
         self.minibatch.shuffle()
         itr = 0
-        while not self.minibatch.end():
+        for batch_edges, current_edge_type, current_edge_type_idx in self.minibatch:
             # Construct feed dictionary
-            self.feed_dict = self.minibatch.next_minibatch_feed_dict(
-                placeholders=self.placeholders)
-            self.feed_dict = self.minibatch.update_feed_dict(
-                feed_dict=self.feed_dict,
+            self.feed_dict = self.minibatch.batch_feed_dict(
+                batch_edges=batch_edges,
+                batch_edge_type=current_edge_type_idx,
                 dropout=dropout,
                 placeholders=self.placeholders)
 
@@ -352,8 +355,7 @@ class RunDecagon(metaclass=ABCMeta):
                 val_auc, val_auprc, val_apk = self._get_accuracy_scores(
                     sess, self.minibatch.val_edges,
                     self.minibatch.val_edges_false,
-                    self.minibatch.idx2edge_type[
-                        self.minibatch.current_edge_type_idx])
+                    current_edge_type)
 
                 print("Epoch:", "%04d" % (epoch + 1), "Iter:",
                       "%04d" % (itr + 1), "Edge:", "%04d" % batch_edge_type,

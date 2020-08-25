@@ -56,7 +56,7 @@ class RunDecagon(metaclass=ABCMeta):
     minibatch : EdgeMinibatchIterator
         Minibatch iterator.
     placeholders : Dict[str, tf.compat.v1.placeholder]
-        Input data for decagon model.
+        Variables for input data in decagon model.
     model : DecagonModel
         Decagon model (encoder + decoder).
     opt : DecagonOptimizer

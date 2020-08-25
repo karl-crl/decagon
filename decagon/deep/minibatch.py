@@ -3,10 +3,11 @@ from __future__ import print_function
 
 import gc
 import math
-from typing import List, Optional, NoReturn, Dict, Tuple
+from typing import List, Optional, NoReturn, Dict, Tuple, Any
 
 import numpy as np
 import scipy.sparse as sp
+import tensorflow as tf
 import os
 from copy import deepcopy
 
@@ -61,7 +62,9 @@ class EdgeMinibatchIterator(object):
     batch_num : Dict[Tuple[int, int], List[int]]
         From edge type to index of current batch (for every edge class in this type).
     took_all_edges : Dict[Tuple[int, int], int]
-        All edges are already taken this epoch?
+        All edges are already taken this epoch? (For every edge type).
+    ordered_edge_types: List[Tuple[int, int]]
+        List of all edge types.
 
     """
 
@@ -74,6 +77,7 @@ class EdgeMinibatchIterator(object):
         self.adj_mats = adj_mats
         self.feat = feat
         self.edge_types = edge_types
+        self.ordered_edge_types = list(self.edge_types.keys())
         self.batch_size = batch_size
         self.val_test_size = val_test_size
         self.num_edge_types = sum(self.edge_types.values())
@@ -289,7 +293,7 @@ class EdgeMinibatchIterator(object):
 
         Returns
         -------
-        List[float]preprocess_graph
+        List[float]
             List of number of zeros in each batch.
         """
         tmp = []
@@ -397,7 +401,30 @@ class EdgeMinibatchIterator(object):
         self.test_edges[edge_type][type_idx] = test_edges
         self.test_edges_false[edge_type][type_idx] = np.array(test_edges_false)
 
-    def batch_feed_dict(self, batch_edges, batch_edge_type, dropout, placeholders):
+    def batch_feed_dict(self, batch_edges: np.array,
+                        batch_edge_type: int, dropout: float,
+                        placeholders: Dict[str, tf.compat.v1.placeholder]
+                        ) -> Dict[str, Any]:
+        """
+        Create feed dict for minibatch.
+        Parameters
+        ----------
+        batch_edges : np.array
+            Minibatch with train edges.
+        batch_edge_type : int
+            Index of type of batch edges (with class in this type)
+            (index in edge_type2idx).
+        dropout : float
+            Dropout rate (1 - keep probability).
+        placeholders : Dict[str, tf.compat.v1.placeholder]
+            Variables for input data of decagon model.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Feed dict for minibatch (feed dict --- values of placeholders).
+
+        """
         feed_dict = dict()
         feed_dict.update({placeholders['batch']: batch_edges})
         feed_dict.update({placeholders['batch_edge_type_idx']: batch_edge_type})
@@ -434,43 +461,31 @@ class EdgeMinibatchIterator(object):
         If self.iter % 4 == 0 -> take protein-protein batch.
         If self.iter % 4 == 1 -> take protein-drug batch.
         If self.iter % 4 == 2 -> take drug-protein batch.
-        If self.iter % 4 == 3 -> take drug-drug batch from random class.
-
-        self.freebatch_edge_types for every edge type contains classes,
-        what have edges aren't already taken this epoch.
-
-
-
+        If self.iter % 4 == 3 -> take drug-drug batch from random side effect.
         """
-        ready_to_take_batch = False
-        cur_edge_type, cur_edge_class = None, None
-        while not ready_to_take_batch:
-            # TODO: self.edge_types --- ordered dict??
-            cur_edge_type = list(self.edge_types.keys())[self.iter % len(self.edge_types)]
-            if len(self.freebatch_edge_types[cur_edge_type]) == 0:
-                # If all edges of current edge type are already taken this epoch
-                self.took_all_edges[cur_edge_type] = True
-                self.freebatch_edge_types[cur_edge_type] = list(
-                    range(self.edge_types[cur_edge_type]))
-                self.batch_num[cur_edge_type] = [0] * self.edge_types[cur_edge_type]
+        cur_edge_type = self.ordered_edge_types[self.iter % len(self.edge_types)]
+        # Remove from freebatch_edge_types classes, what are already fully taken.
+        for edge_class in self.freebatch_edge_types[cur_edge_type]:
+            batch_number = self.batch_num[cur_edge_type][edge_class]
+            if batch_number + 1 >= self.num_training_batches(cur_edge_type, edge_class):
+                self.freebatch_edge_types[cur_edge_type].remove(edge_class)
 
-            if np.all(list(self.took_all_edges.values())):
-                # If all edges are already taken this epoch.
-                raise StopIteration
-
-            cur_edge_class = np.random.choice(self.freebatch_edge_types[cur_edge_type])
-
-            # TODO: перепроверить
-            cur_batch_num = self.batch_num[cur_edge_type][cur_edge_class]
-            out_of_edges = ((cur_batch_num + 1) * self.batch_size - 1 >
-                            len(self.train_edges[cur_edge_type][cur_edge_class]))
-
-            if out_of_edges:
-                # Go to another class in this edge type (e.g. another side effect)
-                self.freebatch_edge_types[cur_edge_type].remove(cur_edge_class)
-            else:
-                ready_to_take_batch = True
-
+        # If we take all edges from current type, but another type is not fully taken,
+        # we should to restart getting edges from current type.
+        if len(self.freebatch_edge_types[cur_edge_type]) == 0:
+            # We take all edges from current type.
+            self.took_all_edges[cur_edge_type] = True
+            # All edges from current type (from all classes) are ready to taken again.
+            self.freebatch_edge_types[cur_edge_type] = list(
+                range(self.edge_types[cur_edge_type]))
+            # Make zero index of batches.
+            self.batch_num[cur_edge_type] = [0] * self.edge_types[cur_edge_type]
+        # If all edges are already taken this epoch.
+        if np.all(list(self.took_all_edges.values())):
+            raise StopIteration
+        # Select random class from current edge type to sample batch
+        # (e.g. select specific side effect for drug-drug edges).
+        cur_edge_class = np.random.choice(self.freebatch_edge_types[cur_edge_type])
         self.iter += 1
         start = self.batch_num[cur_edge_type][cur_edge_class] * self.batch_size
         self.batch_num[cur_edge_type][cur_edge_class] += 1
@@ -483,8 +498,24 @@ class EdgeMinibatchIterator(object):
     def __iter__(self):
         return self
 
-    def num_training_batches(self, edge_type, type_idx):
-        return len(self.train_edges[edge_type][type_idx]) // self.batch_size + 1
+    def num_training_batches(self, edge_type: Tuple[int, int], edge_class: int) -> int:
+        """
+        Number of different training batches for given edge type and
+        class in this type.
+        Parameters
+        ----------
+        edge_type : Tuple[int, int]
+            Edge type (e.g. (0, 0) for protein-protein edges, (1, 1) for drug-drug).
+        type_idx : int
+            Edge class in given type (e.g. index of side effect for (1, 1)).
+
+        Returns
+        -------
+        int
+            Number og batches.
+
+        """
+        return len(self.train_edges[edge_type][edge_class]) // self.batch_size + 1
 
     def val_feed_dict(self, edge_type, type_idx, placeholders, size=None):
         edge_list = self.val_edges[edge_type][type_idx]
@@ -498,7 +529,7 @@ class EdgeMinibatchIterator(object):
     def shuffle(self) -> NoReturn:
         """
         Shuffle train edges and reinitialize self.freebatch_edge_types, self.batch_num,
-        self.took_all_edges, self.iter
+        self.took_all_edges, self.iter.
 
         Returns
         -------

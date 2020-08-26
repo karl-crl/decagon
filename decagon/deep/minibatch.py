@@ -8,7 +8,6 @@ from typing import List, Optional, NoReturn, Dict, Tuple, Any
 import numpy as np
 import scipy.sparse as sp
 import tensorflow as tf
-import os
 from copy import deepcopy
 
 from constants import PARAMS
@@ -54,11 +53,15 @@ class EdgeMinibatchIterator(object):
         (np.array separately for each edge class,
         e.g. (1, 1): [ar1, ar2, ar3], i.e. np.array for each side effect).
 
+    adj_train: Dict[Tuple[int, int], List[sp.csr_matrix]]
+        From edge type to list of train normalized adjacency matrices for each edge class
+        in this type.
+
     iter : int
         Number of current iteration.
     freebatch_edge_types : Dict[Tuple[int, int], List[int]]
         For every edge type contains classes,
-        what have edges aren't already taken this epoch.
+        what have edges aren't already taken.
     batch_num : Dict[Tuple[int, int], List[int]]
         From edge type to index of current batch (for every edge class in this type).
     took_all_edges : Dict[Tuple[int, int], int]
@@ -95,7 +98,6 @@ class EdgeMinibatchIterator(object):
                           for edge_class in range(num_classes)]
         self.edge_type2idx = dict(zip(all_edge_types,
                                       range(len(all_edge_types))))
-        # TODO: May be change dict to list?
         self.idx2edge_type = dict(zip(range(len(all_edge_types)),
                                       all_edge_types))
 
@@ -110,7 +112,6 @@ class EdgeMinibatchIterator(object):
         self.test_edges = deepcopy(edges_init)
         self.test_edges_false = deepcopy(edges_init)
         self.val_edges_false = deepcopy(edges_init)
-        # Function to build test and val sets with val_test_size positive links
         self.adj_train = deepcopy(edges_init)
 
         for i, j in self.edge_types:
@@ -173,9 +174,60 @@ class EdgeMinibatchIterator(object):
                                  allow_pickle=True).item()
 
     @staticmethod
-    def preprocess_graph(adj):
+    def preprocess_graph(adj: sp.csr_matrix, same_type_nodes: bool = True
+                         ) -> Tuple[np.array, np.array, Tuple[int, int]]:
+        """
+
+        Parameters
+        ----------
+        adj : sp.csr_matrix
+            Adjacency matrix.
+        same_type_nodes : bool
+            Is adjacency matrix for nodes of same type or not?
+            E.g. drug-drug, protein-protein adj or drug-protein, protein-drug.
+
+        Returns
+        -------
+        np.array
+            Pairs of edges in normalized adjacency matrix with nonzero values.
+        np.array
+            Nonzero values of normalized adjacency matrix.
+        Tuple[int, int]
+            Shape of normalized adjacency matrix.
+
+        Notes
+        -----
+        Updating embeddings on new layer can be written as
+        H(l+1) = σ(SUM_r A_r_normalize @ H(l) @ W_r(l))
+        A_r_normalize --- normalized adj matrix for r edge type.
+
+        So we have two variants of normalization for A_r (further just A).
+        1. Adj matrix for nodes of same type. It is symmetric.
+            A_ = A + I,
+            to add information of current node when collecting information from neighbors
+            with same type.
+            E.g. collecting info from drug nodes when update current drug embedding.
+
+            D: degree matrix (diagonal matrix with number of neighbours on the diagonal).
+            A_normalize = D^(-1/2) @ A_ @ D^(-1/2),
+            to symmetric normalization (division by sqrt(N_r^i) * sqrt(N_r^j)
+            in formula from original paper).
+
+        2. Adj matrix for nodes of different type.
+            Here we don't need to add information from the current node.
+
+            D_row: output degree matrix --- diagonal matrix with number of output
+            neighbours (i.e. i -> neighbours) on the diagonal.
+            D_col: input degree matrix --- diagonal matrix with number of input
+            neighbours (i.e. neighbours -> i) on the diagonal.
+            A_normalize = D_row^(-1/2) @ A @ D_col^(-1/2),
+            to symmetric normalization (division by sqrt(N_r^i) * sqrt(N_r^j)
+            in formula from original paper).
+
+
+        """
         adj = sp.coo_matrix(adj)
-        if adj.shape[0] == adj.shape[1]:
+        if same_type_nodes:
             adj_ = adj + sp.eye(adj.shape[0])
             rowsum = np.array(adj_.sum(1))
             degree_mat_inv_sqrt = sp.diags(np.power(rowsum, -0.5).flatten())
@@ -191,13 +243,6 @@ class EdgeMinibatchIterator(object):
             adj_normalized = rowdegree_mat_inv.dot(adj).dot(
                 coldegree_mat_inv).tocoo()
         return preprocessing.sparse_to_tuple(adj_normalized)
-
-    @staticmethod
-    def _ismember(a, b):
-        a = np.array(a)
-        b = np.array(b)
-        rows_close = np.all(a - b == 0, axis=1)
-        return np.any(rows_close)
 
     @staticmethod
     def _sample_from_zeros(n: int, sparse: sp.csr_matrix) -> List[List[int]]:
@@ -360,13 +405,39 @@ class EdgeMinibatchIterator(object):
         np.random.shuffle(result)
         return result[:n_of_samples]
 
-    def mask_test_edges(self, edge_type, type_idx):
-        # TODO: Make faster
+    def _mask_test_edges(self, edge_type: Tuple[int, int], edge_class: int,
+                         min_val_test_size: int = 50) -> None:
+        """
+        Split edges into train/validate/test.
+        Write into self.adj_train[edge_type][edge_class]
+        normalized train adjacency matrix.
+
+        Parameters
+        ----------
+        edge_type : Tuple[int, int]
+            Type if edges.
+        edge_class : int
+            Index of edge class in given edge type
+            (e. g. for (1, 1) i means ith side effect).
+        min_val_test_size : int
+            Proportion of train and validate data. It should be < 0.5!
+
+        Returns
+        -------
+
+        """
+        if min_val_test_size >= 0.5:
+            print('proportions of validation and test data should be < 0.5')
+            raise ValueError
+
+        # Split positive examples.
+
+        # np.array with pairs of nodes (edges with current edge_type and edge_class).
         edges_all, _, _ = preprocessing.sparse_to_tuple(
-            self.adj_mats[edge_type][type_idx])
-        num_test = max(50,
+            self.adj_mats[edge_type][edge_class])
+        num_test = max(min_val_test_size,
                        int(np.floor(edges_all.shape[0] * self.val_test_size)))
-        num_val = max(50,
+        num_val = max(min_val_test_size,
                       int(np.floor(edges_all.shape[0] * self.val_test_size)))
 
         all_edge_idx = list(range(edges_all.shape[0]))
@@ -382,24 +453,31 @@ class EdgeMinibatchIterator(object):
                                 np.hstack([test_edge_idx, val_edge_idx]),
                                 axis=0)
 
+        self.train_edges[edge_type][edge_class] = train_edges
+        self.val_edges[edge_type][edge_class] = val_edges
+        self.test_edges[edge_type][edge_class] = test_edges
+
+        # Split negative examples.
+
         zeros_to_pick = len(test_edges) + len(val_edges)
-        res = self._negative_sampling(self.adj_mats[edge_type][type_idx],
+        res = self._negative_sampling(self.adj_mats[edge_type][edge_class],
                                       zeros_to_pick)
-        test_edges_false = res[:len(test_edges)]  # negative samples
+        test_edges_false = res[:len(test_edges)]
         val_edges_false = res[len(test_edges):]
 
-        # Re-build adj matrices
+        self.val_edges_false[edge_type][edge_class] = np.array(val_edges_false)
+        self.test_edges_false[edge_type][edge_class] = np.array(test_edges_false)
+
+        # Re-build adj matrices (create train matrix and normalize it)
+
+        # Adjacency matrix for train edges (1 correspond train edges).
         data = np.ones(train_edges.shape[0])
         adj_train = sp.csr_matrix(
             (data, (train_edges[:, 0], train_edges[:, 1])),
-            shape=self.adj_mats[edge_type][type_idx].shape)
-        self.adj_train[edge_type][type_idx] = self.preprocess_graph(adj_train)
-
-        self.train_edges[edge_type][type_idx] = train_edges
-        self.val_edges[edge_type][type_idx] = val_edges
-        self.val_edges_false[edge_type][type_idx] = np.array(val_edges_false)
-        self.test_edges[edge_type][type_idx] = test_edges
-        self.test_edges_false[edge_type][type_idx] = np.array(test_edges_false)
+            shape=self.adj_mats[edge_type][edge_class].shape)
+        # Normalize train adjacency matrix.
+        self.adj_train[edge_type][edge_class] = self.preprocess_graph(
+            adj_train, same_type_nodes=(edge_type[0] == edge_type[1]))
 
     def batch_feed_dict(self, batch_edges: np.array,
                         batch_edge_type: int, dropout: float,
@@ -465,10 +543,10 @@ class EdgeMinibatchIterator(object):
         """
         cur_edge_type = self.ordered_edge_types[self.iter % len(self.edge_types)]
         # Remove from freebatch_edge_types classes, what are already fully taken.
-        for edge_class in self.freebatch_edge_types[cur_edge_type]:
-            batch_number = self.batch_num[cur_edge_type][edge_class]
-            if batch_number + 1 >= self.num_training_batches(cur_edge_type, edge_class):
-                self.freebatch_edge_types[cur_edge_type].remove(edge_class)
+        self.freebatch_edge_types[cur_edge_type] = [
+            edge_class for edge_class in self.freebatch_edge_types[cur_edge_type]
+            if self.batch_num[cur_edge_type][edge_class] + 1 <= self.num_training_batches(
+                cur_edge_type, edge_class)]
 
         # If we take all edges from current type, but another type is not fully taken,
         # we should to restart getting edges from current type.
@@ -514,8 +592,13 @@ class EdgeMinibatchIterator(object):
         int
             Number og batches.
 
+        Notes
+        -----
+        Only batches with batch_size can be given into model.
+        If last batch is smaller, it skips.
+
         """
-        return len(self.train_edges[edge_type][edge_class]) // self.batch_size + 1
+        return len(self.train_edges[edge_type][edge_class]) // self.batch_size
 
     def val_feed_dict(self, edge_type, type_idx, placeholders, size=None):
         edge_list = self.val_edges[edge_type][type_idx]

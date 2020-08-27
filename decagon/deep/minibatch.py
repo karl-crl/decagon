@@ -117,7 +117,7 @@ class EdgeMinibatchIterator(object):
         for i, j in self.edge_types:
             for k in range(self.edge_types[i, j]):
                 print("Minibatch edge type:", f"({i}, {j}, {k})")
-                self.mask_test_edges((i, j), k)
+                self._mask_test_edges((i, j), k)
                 print("Train edges=", f"{len(self.train_edges[i, j][k]):.4f}")
                 print("Val edges=", f"{len(self.val_edges[i, j][k]):.4f}")
                 print("Test edges=", f"{len(self.test_edges[i, j][k]):.4f}")
@@ -420,13 +420,13 @@ class EdgeMinibatchIterator(object):
             Index of edge class in given edge type
             (e. g. for (1, 1) i means ith side effect).
         min_val_test_size : int
-            Proportion of train and validate data. It should be < 0.5!
+            Minimum size of train and validation samples.
 
         Returns
         -------
 
         """
-        if min_val_test_size >= 0.5:
+        if self.val_test_size >= 0.5:
             print('proportions of validation and test data should be < 0.5')
             raise ValueError
 

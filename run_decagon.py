@@ -44,6 +44,12 @@ class RunDecagon(metaclass=ABCMeta):
         (e. g. (1, 1): number of se).
     num_edge_types : int
         Number of all edge types (considering all classes).
+    symmetry_types_groups : List[List]
+        Should contains lists with len in {1, 2}.
+        All types of edges splits into groups of symmetry.
+        E. g. symmetry_types_groups = [[(0, 0)], [(0, 1), (1, 0)], [(1, 1)]].
+        Two types from one group of symmetry have same edges, differing only in direction
+        (e.g (0, 1) has protein -> drug edges and (1, 0) has drug -> protein edges).
 
     num_feat : Dict[int, int]
         Number of elements in feature vector for 0: -genes, for 1: -drugs.
@@ -137,6 +143,11 @@ class RunDecagon(metaclass=ABCMeta):
             (1, 0): 'bilinear',
             (1, 1): 'dedicom',
         }
+        self.symmetry_types_groups = [
+            [(0, 0)],
+            [(0, 1), (1, 0)],
+            [(1, 1)]
+        ]
 
         self.edge_types = {k: len(v) for k, v in self.adj_mats.items()}
         self.num_edge_types = sum(self.edge_types.values())
@@ -166,6 +177,7 @@ class RunDecagon(metaclass=ABCMeta):
             adj_mats=self.adj_mats,
             feat=self.feat,
             edge_types=self.edge_types,
+            symmetry_types_groups=self.symmetry_types_groups,
             batch_size=batch_size,
             val_test_size=val_test_size,
             path_to_split=path_to_split,

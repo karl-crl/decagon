@@ -27,7 +27,17 @@ class EdgeMinibatchIterator(object):
         From edge type to number of different classes of these edge type (e.g.
         (0, 0): 1, i.e. protein-protein interaction;
         (1, 1): 3, i.e. 3 classes of drug-drug side effects;
-        (0, 1): 1, i.e. protein-drug and (1, 0): 1, i.e. drug-protein).
+        (0, 1): 1, i.e. protein-drug;
+        (1, 0): 1, i.e. drug-protein).
+    symmetry_types_groups : List[List]
+        Should contains lists with len in {1, 2}.
+        All types of edges splits into groups of symmetry.
+        E. g. symmetry_types_groups = [[(0, 0)], [(0, 1), (1, 0)], [(1, 1)]].
+        Two types from one group of symmetry have same edges, differing only in direction
+        (e.g (0, 1) has protein -> drug edges and (1, 0) has drug -> protein edges).
+        It is needed to good splitting edges into train/validate/test,
+        because independent splitting of symmetry classes leads to leakage problem
+        (e.g. protein_A -> drug_B in train, drug_B -> protein_A in test).
     num_edge_types : int
         Number of edges types (considering edge classes).
     edge_type2idx : Dict[Tuple[int, int, int], int]
@@ -69,17 +79,25 @@ class EdgeMinibatchIterator(object):
     ordered_edge_types: List[Tuple[int, int]]
         List of all edge types.
 
+    val_test_size : float
+        Proportion of train and validate data. It should be < 0.5!
+    batch_size : int
+        Minibatch size.
+
     """
 
     def __init__(self,
                  adj_mats: Dict[Tuple[int, int], List[sp.csr_matrix]],
                  feat: Dict[int, sp.csr_matrix],
                  edge_types: Dict[Tuple[int, int], int],
+                 symmetry_types_groups: List[List],
                  path_to_split: str, batch_size: int = PARAMS['batch_size'],
                  val_test_size: float = 0.01, need_sample_edges: bool = False):
+
         self.adj_mats = adj_mats
         self.feat = feat
         self.edge_types = edge_types
+        self.symmetry_types_groups = symmetry_types_groups
         self.ordered_edge_types = list(self.edge_types.keys())
         self.batch_size = batch_size
         self.val_test_size = val_test_size
@@ -114,14 +132,75 @@ class EdgeMinibatchIterator(object):
         self.val_edges_false = deepcopy(edges_init)
         self.adj_train = deepcopy(edges_init)
 
-        for i, j in self.edge_types:
-            for k in range(self.edge_types[i, j]):
-                print("Minibatch edge type:", f"({i}, {j}, {k})")
-                self.mask_test_edges((i, j), k)
-                print("Train edges=", f"{len(self.train_edges[i, j][k]):.4f}")
-                print("Val edges=", f"{len(self.val_edges[i, j][k]):.4f}")
-                print("Test edges=", f"{len(self.test_edges[i, j][k]):.4f}")
+        for types_group in self.symmetry_types_groups:
+            first_edge_type = types_group[0]
+            for edge_class in range(self.edge_types[first_edge_type]):
+                print("Minibatch edge type:", f"({first_edge_type}, {edge_class})")
+                self._mask_test_edges(first_edge_type, edge_class)
+                self._train_adjacency(first_edge_type, edge_class)
+                print("Train edges=",
+                      f"{len(self.train_edges[first_edge_type][edge_class]):.4f}")
+                print("Val edges=",
+                      f"{len(self.val_edges[first_edge_type][edge_class]):.4f}")
+                print("Test edges=",
+                      f"{len(self.test_edges[first_edge_type][edge_class]):.4f}")
+
+                if len(types_group) > 1:
+                    second_edge_type = types_group[1]
+                    self._make_symmetry_edges(edge_type=first_edge_type,
+                                              symmetry_edge_type=second_edge_type,
+                                              edge_class=edge_class)
+                    # TODO: may be just take adj for first_edge_type and transpose it?
+                    self._train_adjacency(second_edge_type, edge_class)
+
         self._save_edges(path_to_split)
+
+    @staticmethod
+    def _inverse_edges(edges: np.array) -> np.array:
+        """
+        Inverse all given edges.
+        Parameters
+        ----------
+        edges : np.array
+            Edges in format --- one row = one nodes pair.
+
+        Returns
+        -------
+        np.array
+            Inverse edges (e.g. edge [1, 2] -> [2, 1]).
+
+        """
+        inversed_edges = edges.copy()
+        inversed_edges[:, [0, 1]] = inversed_edges[:, [1, 0]]
+        return inversed_edges
+
+    def _make_symmetry_edges(self, edge_type: Tuple[int, int],
+                             symmetry_edge_type: Tuple[int, int],
+                             edge_class: int) -> NoReturn:
+        """
+        Inverse train, validate, test, neg. validate and neg. test edges
+        of given edge_type and edge_class to make split edges of symmetry edge_type
+        (and same edge_class).
+
+        Parameters
+        ----------
+        edge_type : Tuple[int, int]
+            Type of edges.
+        symmetry_edge_type : Tuple[int, int]
+            Type of edges in one symmetry group with edge_type
+            (e.g. if edge_type = (0, 1), symmetry edge_type can be (1, 0)).
+        edge_class : int
+            Index of edge class.
+
+        Returns
+        -------
+
+        """
+        all_edges_splits = [self.train_edges, self.val_edges, self.test_edges,
+                            self.val_edges_false, self.test_edges_false]
+        for edges_split in all_edges_splits:
+            edges_split[symmetry_edge_type][edge_class] = self._inverse_edges(
+                edges_split[edge_type][edge_class])
 
     def _save_edges(self, path_to_split: str) -> NoReturn:
         """
@@ -168,7 +247,6 @@ class EdgeMinibatchIterator(object):
         self.val_edges_false = np.load(f'{path_to_split}/' +
                                        f'val_edges_false.npy',
                                        allow_pickle=True).item()
-        # Function to build test and val sets with val_test_size positive links
         self.adj_train = np.load(f'{path_to_split}/' +
                                  f'adj_train.npy',
                                  allow_pickle=True).item()
@@ -420,13 +498,13 @@ class EdgeMinibatchIterator(object):
             Index of edge class in given edge type
             (e. g. for (1, 1) i means ith side effect).
         min_val_test_size : int
-            Proportion of train and validate data. It should be < 0.5!
+            Minimum size of test and validation samples.
 
         Returns
         -------
 
         """
-        if min_val_test_size >= 0.5:
+        if self.val_test_size >= 0.5:
             print('proportions of validation and test data should be < 0.5')
             raise ValueError
 
@@ -468,9 +546,24 @@ class EdgeMinibatchIterator(object):
         self.val_edges_false[edge_type][edge_class] = np.array(val_edges_false)
         self.test_edges_false[edge_type][edge_class] = np.array(test_edges_false)
 
-        # Re-build adj matrices (create train matrix and normalize it)
+    def _train_adjacency(self, edge_type: Tuple[int, int], edge_class: int
+                         ) -> NoReturn:
+        """
+        Create train adjacency matrix for given edge type and class, normalize it.
 
+        Parameters
+        ----------
+        edge_type : Tuple[int, int]
+            Type of edges.
+        edge_class : int
+            Index of edge class in given type.
+
+        Returns
+        -------
+
+        """
         # Adjacency matrix for train edges (1 correspond train edges).
+        train_edges = self.train_edges[edge_type][edge_class]
         data = np.ones(train_edges.shape[0])
         adj_train = sp.csr_matrix(
             (data, (train_edges[:, 0], train_edges[:, 1])),

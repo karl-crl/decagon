@@ -378,7 +378,8 @@ class RunDecagon(metaclass=ABCMeta):
 
     def run(self, adj_path: str, path_to_split: str, val_test_size: float,
             batch_size: int, num_epochs: int, dropout: float, max_margin: float,
-            print_progress_every: int, log: bool, on_cpu: bool) -> NoReturn:
+            print_progress_every: int, log: bool, on_cpu: bool,
+            upload_saved: bool) -> NoReturn:
         """
         Run Decagon.
 
@@ -431,51 +432,31 @@ class RunDecagon(metaclass=ABCMeta):
         saver = tf.compat.v1.train.Saver()
         sess = tf.compat.v1.Session()
         ###
-        # sess.run(tf.compat.v1.global_variables_initializer())
-        # self.feed_dict = {}
-        # for epoch in range(num_epochs):
-        #     self._run_epoch(sess, dropout, print_progress_every, epoch, log)
-        #     saver.save(sess, MODEL_SAVE_PATH)
-        # print("Optimization finished!")
-        # # saver.save(sess, MODEL_SAVE_PATH)
-        # for et in range(self.num_edge_types):
-        #     roc_score, auprc_score, apk_score = self._get_accuracy_scores(
-        #         sess, self.minibatch.test_edges,
-        #         self.minibatch.test_edges_false,
-        #         self.minibatch.idx2edge_type[et])
-        #     print("Edge type=",
-        #           "[%02d, %02d, %02d]" % self.minibatch.idx2edge_type[et])
-        #     print("Edge type:", "%04d" % et, "Test AUROC score",
-        #           "{:.5f}".format(roc_score))
-        #     print("Edge type:", "%04d" % et, "Test AUPRC score",
-        #           "{:.5f}".format(auprc_score))
-        #     print("Edge type:", "%04d" % et, "Test AP@k score",
-        #           "{:.5f}".format(apk_score))
-        #     print()
-        # if log:
-        #     import neptune
-        #     neptune.log_metric("ROC-AUC", roc_score)
-        #     neptune.log_metric("AUPRC", auprc_score)
-        #     neptune.log_metric("AP@k score", apk_score)
-        ###
-        # Uncomment to load stored model
-        saver.restore(sess, MODEL_SAVE_PATH)
         sess.run(tf.compat.v1.global_variables_initializer())
         self.feed_dict = {}
 
-        self.minibatch.shuffle()
-        for batch_edges, current_edge_type, current_edge_type_idx in self.minibatch:
-            # Construct feed dictionary
-            self.feed_dict = self.minibatch.batch_feed_dict(
-                batch_edges=batch_edges,
-                batch_edge_type=current_edge_type_idx,
-                dropout=dropout,
-                placeholders=self.placeholders)
+        if upload_saved:
+            saver.restore(sess, MODEL_SAVE_PATH)
+            sess.run(tf.compat.v1.global_variables_initializer())
+            self.minibatch.shuffle()
+            for batch_edges, current_edge_type, current_edge_type_idx in self.minibatch:
+                # Construct feed dictionary
+                self.feed_dict = self.minibatch.batch_feed_dict(
+                    batch_edges=batch_edges,
+                    batch_edge_type=current_edge_type_idx,
+                    dropout=dropout,
+                    placeholders=self.placeholders)
+            saver.restore(sess, MODEL_SAVE_PATH)
 
-        saver.restore(sess, MODEL_SAVE_PATH)
+        for epoch in range(num_epochs):
+            self._run_epoch(sess, dropout, print_progress_every, epoch, log)
+            saver.save(sess, MODEL_SAVE_PATH)
+        print("Optimization finished!")
+        # saver.save(sess, MODEL_SAVE_PATH)
         for et in range(self.num_edge_types):
             roc_score, auprc_score, apk_score = self._get_accuracy_scores(
-                sess, self.minibatch.test_edges, self.minibatch.test_edges_false,
+                sess, self.minibatch.test_edges,
+                self.minibatch.test_edges_false,
                 self.minibatch.idx2edge_type[et])
             print("Edge type=",
                   "[%02d, %02d, %02d]" % self.minibatch.idx2edge_type[et])
@@ -486,3 +467,8 @@ class RunDecagon(metaclass=ABCMeta):
             print("Edge type:", "%04d" % et, "Test AP@k score",
                   "{:.5f}".format(apk_score))
             print()
+        if log:
+            import neptune
+            neptune.log_metric("ROC-AUC", roc_score)
+            neptune.log_metric("AUPRC", auprc_score)
+            neptune.log_metric("AP@k score", apk_score)

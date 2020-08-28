@@ -713,15 +713,6 @@ class EdgeMinibatchIterator(object):
         """
         return len(self.train_edges[edge_type][edge_class]) // self.batch_size
 
-    def val_feed_dict(self, edge_type, type_idx, placeholders, size=None):
-        edge_list = self.val_edges[edge_type][type_idx]
-        if size is None:
-            return self.batch_feed_dict(edge_list, edge_type, placeholders)
-        else:
-            ind = np.random.permutation(len(edge_list))
-            val_edges = [edge_list[i] for i in ind[:min(size, len(ind))]]
-            return self.batch_feed_dict(val_edges, edge_type, placeholders)
-
     def shuffle(self) -> NoReturn:
         """
         Shuffle train edges and reinitialize self.freebatch_edge_types, self.batch_num,

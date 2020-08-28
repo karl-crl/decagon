@@ -16,7 +16,7 @@ from scipy.special import expit
 from sklearn import metrics
 
 tf.compat.v1.disable_eager_execution()
-np.random.seed(123)
+
 
 class RunDecagon(metaclass=ABCMeta):
     """
@@ -70,6 +70,22 @@ class RunDecagon(metaclass=ABCMeta):
     """
 
     def __init__(self):
+        self.adj_mats = None
+        self.degrees = None
+        self.num_feat = None
+        self.nonzero_feat = None
+        self.feat = None
+        self.edge_type2dim = None
+        self.edge_type2decoder = None
+        self.edge_types = None
+        self.num_edge_types = None
+
+        self.minibatch = None
+        self.opt = None
+        self.placeholders = None
+        self.model = None
+        self.feed_dict = None
+
         pass
 
     def _adjacency(self, adj_path: str) -> NoReturn:
@@ -183,10 +199,6 @@ class RunDecagon(metaclass=ABCMeta):
             path_to_split=path_to_split,
             need_sample_edges=need_sample_edges
         )
-        print(self.minibatch.train_edges[(0, 0)][0].shape)
-        print(self.minibatch.train_edges[(0, 1)][0].shape)
-        print(self.minibatch.train_edges[(1, 0)][0].shape)
-        print(sum([len(ar) for ar in self.minibatch.train_edges[(1, 1)]]))
 
     def _construct_placeholders(self) -> NoReturn:
         """
@@ -345,7 +357,6 @@ class RunDecagon(metaclass=ABCMeta):
             Whether to log or not.
         """
         self.minibatch.shuffle()
-        itr = 0
         for batch_edges, current_edge_type, current_edge_type_idx in self.minibatch:
             # Construct feed dictionary
             self.feed_dict = self.minibatch.batch_feed_dict(
@@ -363,14 +374,14 @@ class RunDecagon(metaclass=ABCMeta):
             train_cost = outs[1]
             batch_edge_type = outs[2]
 
-            if itr % print_progress_every == 0:
+            if self.minibatch.iter % print_progress_every == 0:
                 val_auc, val_auprc, val_apk = self._get_accuracy_scores(
                     sess, self.minibatch.val_edges,
                     self.minibatch.val_edges_false,
                     current_edge_type)
 
                 print("Epoch:", "%04d" % (epoch + 1), "Iter:",
-                      "%04d" % (itr + 1), "Edge:", "%04d" % batch_edge_type,
+                      "%04d" % (self.minibatch.iter + 1), "Edge:", "%04d" % batch_edge_type,
                       "train_loss=", "{:.5f}".format(train_cost),
                       "val_roc=", "{:.5f}".format(val_auc), "val_auprc=",
                       "{:.5f}".format(val_auprc),
@@ -386,11 +397,10 @@ class RunDecagon(metaclass=ABCMeta):
                                        timestamp=time.time())
                     neptune.log_metric("train_loss", train_cost,
                                        timestamp=time.time())
-            itr += 1
 
     def run(self, adj_path: str, path_to_split: str, val_test_size: float,
             batch_size: int, num_epochs: int, dropout: float, max_margin: float,
-            print_progress_every: int, log: bool, on_cpu: bool) -> NoReturn:
+            print_progress_every: int, log: bool, on_cpu: bool, seed: int = 123) -> NoReturn:
         """
         Run Decagon.
 
@@ -418,16 +428,20 @@ class RunDecagon(metaclass=ABCMeta):
             Run on cpu instead of gpu.
         max_margin : float
             Max margin parameter in hinge loss.
-
+        seed : int
+            Random seed.
 
         """
-
+        np.random.seed(seed)
         # check if all path exists
         if adj_path and not os.path.exists(adj_path):
             os.makedirs(adj_path)
 
         if not os.path.exists(path_to_split):
             os.makedirs(path_to_split)
+
+        if not os.path.exists(os.path.dirname(MODEL_SAVE_PATH)):
+            os.makedirs(os.path.dirname(MODEL_SAVE_PATH))
 
         if on_cpu:
             os.environ['CUDA_VISIBLE_DEVICES'] = ""
@@ -442,7 +456,6 @@ class RunDecagon(metaclass=ABCMeta):
         print("Initialize session")
         saver = tf.compat.v1.train.Saver()
         sess = tf.compat.v1.Session()
-        ###
         sess.run(tf.compat.v1.global_variables_initializer())
         self.feed_dict = {}
         for epoch in range(num_epochs):
@@ -464,11 +477,11 @@ class RunDecagon(metaclass=ABCMeta):
             print("Edge type:", "%04d" % et, "Test AP@k score",
                   "{:.5f}".format(apk_score))
             print()
-        if log:
-            import neptune
-            neptune.log_metric("ROC-AUC", roc_score)
-            neptune.log_metric("AUPRC", auprc_score)
-            neptune.log_metric("AP@k score", apk_score)
+            if log:
+                import neptune
+                neptune.log_metric("ROC-AUC", roc_score)
+                neptune.log_metric("AUPRC", auprc_score)
+                neptune.log_metric("AP@k score", apk_score)
         ###
         # Uncomment to load stored model
         # saver.restore(sess, MODEL_SAVE_PATH)

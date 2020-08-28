@@ -13,7 +13,6 @@ class RunDecagonReal(RunDecagon):
     """
     Decagon runner on real data.
 
-
     Attributes
     ----------
     drug_drug_net : nx.Graph
@@ -53,7 +52,6 @@ class RunDecagonReal(RunDecagon):
         Number of elements in feature vector for 0: -genes and for 1: -drugs.
     nonzero_feat : Dict[int, int]
         Number of all features for 0: -gene and 1: -drug nodes.
-        All features should be nonzero! ????????????
         TODO: What to do with zero features??
         e.g., it is in format 0: num of genes in graph, 1: num of drugs.
     feat : Dict[int, sp.csr_matrix]
@@ -204,8 +202,6 @@ class RunDecagonReal(RunDecagon):
             Number of elements in feature vector for 0: -genes, for 1: -drugs.
         self.nonzero_feat : Dict[int, int]
             Number of all features for 0: -gene and 1: -drug nodes.
-            All features should be nonzero! ????????????
-            TODO: What to do with zero features??
             e.g., it is in format 0: num of genes in graph, 1: num of drugs.
         self.feat : Dict[int, sp.csr_matrix]
             From edge type (0 = gene, 1 = drug) to feature matrix.
@@ -239,12 +235,6 @@ class RunDecagonReal(RunDecagon):
             print(f'Bad drugs: {drugs_zero_features}')
         drug_nonzero_feat, drug_num_feat = drug_feat.shape
         drug_feat = preprocessing.sparse_to_tuple(drug_feat.tocoo())
-        """
-        n_drugs = len(self.ordered_list_of_drugs)
-        drug_feat = sp.identity(n_drugs)
-        drug_nonzero_feat, drug_num_feat = drug_feat.shape
-        drug_feat = preprocessing.sparse_to_tuple(drug_feat.tocoo())
-    """
         self.num_feat = {
             0: gene_num_feat,
             1: drug_num_feat,

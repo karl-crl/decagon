@@ -485,6 +485,7 @@ class EdgeMinibatchIterator(object):
                         ) -> Dict[str, Any]:
         """
         Create feed dict for minibatch.
+
         Parameters
         ----------
         batch_edges : np.array

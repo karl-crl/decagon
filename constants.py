@@ -19,5 +19,8 @@ PARAMS = {'neg_sample_size': 1,
 INPUT_FILE_PATH = "data/input"
 # Path to folder with input data.
 
-MODEL_SAVE_PATH = "data/output/saved_model/model.ckpt"
+MODEL_SAVE_PATH = "data/output/saved_model"
 # Where to save model during training
+
+MODEL_TO_UPLOAD = None
+# Specify model to upload

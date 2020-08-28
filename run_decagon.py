@@ -16,7 +16,7 @@ from scipy.special import expit
 from sklearn import metrics
 
 tf.compat.v1.disable_eager_execution()
-
+np.random.seed(123)
 
 class RunDecagon(metaclass=ABCMeta):
     """

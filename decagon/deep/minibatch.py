@@ -10,16 +10,12 @@ import scipy.sparse as sp
 import tensorflow as tf
 from copy import deepcopy
 
-from constants import PARAMS
 from ..utility import preprocessing
-
-np.random.seed(123)
 
 
 class EdgeMinibatchIterator(object):
     """
-    This minibatch iterator iterates over batches of sampled edges or
-    random pairs of co-occuring edges.
+    Class-iterator, what iterates over batches of sampled edges.
 
     Attributes:
     ----------
@@ -62,11 +58,12 @@ class EdgeMinibatchIterator(object):
         From edge type to list of np.array FAKE edges
         (np.array separately for each edge class,
         e.g. (1, 1): [ar1, ar2, ar3], i.e. np.array for each side effect).
-
     adj_train: Dict[Tuple[int, int], List[sp.csr_matrix]]
         From edge type to list of train normalized adjacency matrices for each edge class
         in this type.
 
+    batch_size : int
+        Minibatch size.
     iter : int
         Number of current iteration.
     freebatch_edge_types : Dict[Tuple[int, int], List[int]]
@@ -79,11 +76,6 @@ class EdgeMinibatchIterator(object):
     ordered_edge_types: List[Tuple[int, int]]
         List of all edge types.
 
-    val_test_size : float
-        Proportion of train and validate data. It should be < 0.5!
-    batch_size : int
-        Minibatch size.
-
     """
 
     def __init__(self,
@@ -91,17 +83,42 @@ class EdgeMinibatchIterator(object):
                  feat: Dict[int, sp.csr_matrix],
                  edge_types: Dict[Tuple[int, int], int],
                  symmetry_types_groups: List[List],
-                 path_to_split: str, batch_size: int = PARAMS['batch_size'],
-                 val_test_size: float = 0.01, need_sample_edges: bool = False):
+                 path_to_split: str, batch_size: int,
+                 val_test_size: float = 0.01, min_val_test_size: int = 50,
+                 need_sample_edges: bool = False
+                 ):
+        """
+
+        Parameters
+        ----------
+        adj_mats : Dict[Tuple[int, int], List[sp.csr_matrix]]
+            From edge type to list of adjacency matrices for each edge class.
+        feat : Dict[int, sp.csr_matrix]
+            From edge type (0 = gene, 1 = drug) to feature matrix.
+        edge_types : Dict[Tuple[int, int], int]
+            From edge type to number of classes of these edge type.
+        symmetry_types_groups : List[List]
+            Contain all edge types, splitted into symmetry groups.
+            All lists should have len in {1, 2}.
+        path_to_split : str
+            Path to save/load splitted into train/validation/test edges (and normalized train adj. matrix).
+        batch_size : int
+            Minibatch size.
+        min_val_test_size : int
+            Minimum size of test and validation samples.
+        val_test_size : float
+            Proportion of validation and test data. Should be < 0.5!
+        need_sample_edges : bool
+            Need sample edges, or just load it from files?
+        """
 
         self.adj_mats = adj_mats
         self.feat = feat
         self.edge_types = edge_types
         self.symmetry_types_groups = symmetry_types_groups
         self.ordered_edge_types = list(self.edge_types.keys())
-        self.batch_size = batch_size
-        self.val_test_size = val_test_size
         self.num_edge_types = sum(self.edge_types.values())
+        self.batch_size = batch_size
 
         self.freebatch_edge_types = {edge_type: list(range(edge_class))
                                      for edge_type, edge_class in self.edge_types.items()}
@@ -135,8 +152,9 @@ class EdgeMinibatchIterator(object):
         for types_group in self.symmetry_types_groups:
             first_edge_type = types_group[0]
             for edge_class in range(self.edge_types[first_edge_type]):
-                print("Minibatch edge type:", f"({first_edge_type}, {edge_class})")
-                self._mask_test_edges(first_edge_type, edge_class)
+                print("Minibatch edge type:", f"({(*first_edge_type, edge_class)})")
+                self._mask_test_edges(first_edge_type, edge_class,
+                                      min_val_test_size, val_test_size)
                 self._train_adjacency(first_edge_type, edge_class)
                 print("Train edges=",
                       f"{len(self.train_edges[first_edge_type][edge_class]):.4f}")
@@ -345,11 +363,11 @@ class EdgeMinibatchIterator(object):
         return zeros[ids].tolist()
 
     def _sample_by_row(self, num_of_iters_y: int, sparse: sp.csr_matrix,
-                       part_of_zero_i: List[float], batch_size: int,
+                       part_of_zero_i: List[float], submatrix_size: int,
                        n_of_samples: int, start_idx: int,
                        end_idx: Optional[int] = None) -> list:
         """
-        Sample zeros from batch of sparse of kind: sparse[start_idx:end_idx]
+        Sample zeros from submatrix of sparse of kind: sparse[start_idx:end_idx].
 
         Parameters
         ----------
@@ -358,14 +376,14 @@ class EdgeMinibatchIterator(object):
             Sparse matrix.
         part_of_zero_i : List[float]
             Part on n samples to get from current part of matrix.
-        batch_size : int
-            Size of batch (height and width).
+        submatrix_size : int
+            Size of submatrix (height and width).
         n_of_samples : int
             Samples to get from matrix.
         start_idx : int
-            Start index of batch by x.
+            Start index of submatrix by x.
         end_idx : Optional[int]
-            End index of batch by x.
+            End index of submatrix by x.
 
         Returns
         -------
@@ -376,63 +394,63 @@ class EdgeMinibatchIterator(object):
         for j in range(num_of_iters_y):
             to_sample = math.ceil(n_of_samples * (part_of_zero_i[j]))
             submat = sparse[start_idx:end_idx,
-                     j * batch_size:(j + 1) * batch_size]
+                     j * submatrix_size:(j + 1) * submatrix_size]
             ids_in_submat = self._sample_from_zeros(to_sample, submat)
             ids_in_mat = ids_in_submat + \
-                         np.array([start_idx, j * batch_size])
+                         np.array([start_idx, j * submatrix_size])
             to_return.extend(ids_in_mat)
         j = num_of_iters_y
-        if j * batch_size < sparse.shape[1]:
+        if j * submatrix_size < sparse.shape[1]:
             to_sample = math.ceil(n_of_samples * (part_of_zero_i[j]))
             submat = sparse[start_idx:end_idx,
-                     j * batch_size:]
+                     j * submatrix_size:]
             ids_in_submat = self._sample_from_zeros(to_sample, submat)
             ids_in_mat = ids_in_submat + \
-                         np.array([start_idx, j * batch_size])
+                         np.array([start_idx, j * submatrix_size])
             to_return.extend(ids_in_mat)
         return to_return
 
     @staticmethod
     def _get_number_of_zeros_by_row(sparse: sp.csr_matrix, num_of_iters_y: int,
-                                    batch_size: int, elements_in_batch: int,
+                                    submatrix_size: int, elements_in_submatrix: int,
                                     start_idx: int, end_idx: Optional[int] = None
                                     ) -> List[float]:
         """
-        Get number of zeros in batch of sparse of kind: sparse[start_idx:end_idx]
+        Get number of zeros in submatrix of sparse of kind: sparse[start_idx:end_idx].
 
         Parameters
         ----------
         sparse : sp.csr_matrix
             Sparse matrix.
         num_of_iters_y : int
-        batch_size : int
-            Size of batch (height and width).
-        elements_in_batch : int
-            Number of elements in batch.
+        submatrix_size : int
+            Size of submatrix (height and width).
+        elements_in_submatrix : int
+            Number of elements in submatrix.
         start_idx : int
-            Start index of batch by x.
+            Start index of submatrix by x.
         end_idx : Optional[int]
-            End index of batch by x.
+            End index of submatrix by x.
 
         Returns
         -------
         List[float]
-            List of number of zeros in each batch.
+            List of number of zeros in each submatrix.
         """
         tmp = []
         for j in range(num_of_iters_y):
             tmp.append(1 - sparse[start_idx:end_idx,
-                           j * batch_size:(j + 1) * batch_size].count_nonzero()
-                       / elements_in_batch)
+                           j * submatrix_size:(j + 1) * submatrix_size].count_nonzero()
+                       / elements_in_submatrix)
         j = num_of_iters_y
-        if (j * batch_size < sparse.shape[1]):
-            sub_mtr = sparse[start_idx:end_idx, j * batch_size:]
+        if j * submatrix_size < sparse.shape[1]:
+            sub_mtr = sparse[start_idx:end_idx, j * submatrix_size:]
             tmp.append(
                 1 - sub_mtr.count_nonzero() / (sub_mtr.shape[0] * sub_mtr.shape[1]))
         return tmp
 
     def _negative_sampling(self, sparse: sp.csr_matrix, n_of_samples: int,
-                           batch_size: int = 1000) -> List[List[int]]:
+                           submatrix_size: int = 1000) -> List[List[int]]:
         """
         Perform negative sampling.
 
@@ -442,30 +460,30 @@ class EdgeMinibatchIterator(object):
             Sparse matrix.
         n_of_samples : int
             Number os samples to get.
-        batch_size : int
-            Size of batch (height and width).
+        submatrix_size : int
+            Size of submatrix (height and width).
 
         Returns
         -------
         List[List[int]]
             List of negative samples.
         """
-        num_of_iters_x = sparse.shape[0] // batch_size
-        num_of_iters_y = sparse.shape[1] // batch_size
+        num_of_iters_x = sparse.shape[0] // submatrix_size
+        num_of_iters_y = sparse.shape[1] // submatrix_size
 
         # count nonzero elements on each submatrix
-        elements_in_batch = batch_size ** 2
+        elements_in_submatrix = submatrix_size ** 2
         part_of_zero = []
         for i in range(num_of_iters_x):
             part_of_zero.append(
-                self._get_number_of_zeros_by_row(sparse, num_of_iters_y, batch_size,
-                                                 elements_in_batch, i * batch_size,
-                                                 (i + 1) * batch_size))
+                self._get_number_of_zeros_by_row(sparse, num_of_iters_y, submatrix_size,
+                                                 elements_in_submatrix, i * submatrix_size,
+                                                 (i + 1) * submatrix_size))
         i = num_of_iters_x
-        if num_of_iters_x * batch_size < sparse.shape[0]:
+        if num_of_iters_x * submatrix_size < sparse.shape[0]:
             part_of_zero.append(
-                self._get_number_of_zeros_by_row(sparse, num_of_iters_y, batch_size,
-                                                 elements_in_batch, i * batch_size))
+                self._get_number_of_zeros_by_row(sparse, num_of_iters_y, submatrix_size,
+                                                 elements_in_submatrix, i * submatrix_size))
 
         norm = sum([sum(i) for i in part_of_zero])
         part_of_zero = [[i / norm for i in lst] for lst in part_of_zero]
@@ -473,18 +491,18 @@ class EdgeMinibatchIterator(object):
         for i in range(num_of_iters_x):
             print(f"Progress: {i}/{num_of_iters_x}")
             result.extend(self._sample_by_row(num_of_iters_y, sparse, part_of_zero[i],
-                                              batch_size, n_of_samples,
-                                              i * batch_size, (i + 1) * batch_size))
+                                              submatrix_size, n_of_samples,
+                                              i * submatrix_size, (i + 1) * submatrix_size))
             gc.collect()
-        if num_of_iters_x * batch_size < sparse.shape[0]:
+        if num_of_iters_x * submatrix_size < sparse.shape[0]:
             result.extend(self._sample_by_row(num_of_iters_y, sparse, part_of_zero[i],
-                                              batch_size, n_of_samples,
-                                              num_of_iters_x * batch_size))
+                                              submatrix_size, n_of_samples,
+                                              num_of_iters_x * submatrix_size))
         np.random.shuffle(result)
         return result[:n_of_samples]
 
     def _mask_test_edges(self, edge_type: Tuple[int, int], edge_class: int,
-                         min_val_test_size: int = 50) -> None:
+                         min_val_test_size: int = 50, val_test_size: float = 0.1) -> NoReturn:
         """
         Split edges into train/validate/test.
         Write into self.adj_train[edge_type][edge_class]
@@ -499,13 +517,15 @@ class EdgeMinibatchIterator(object):
             (e. g. for (1, 1) i means ith side effect).
         min_val_test_size : int
             Minimum size of test and validation samples.
+        val_test_size : float
+            Proportion of validation and test data. Should be < 0.5!
 
         Returns
         -------
 
         """
-        if self.val_test_size >= 0.5:
-            print('proportions of validation and test data should be < 0.5')
+        if val_test_size >= 0.5:
+            print('proportion of validation and test data should be < 0.5')
             raise ValueError
 
         # Split positive examples.
@@ -514,9 +534,9 @@ class EdgeMinibatchIterator(object):
         edges_all, _, _ = preprocessing.sparse_to_tuple(
             self.adj_mats[edge_type][edge_class])
         num_test = max(min_val_test_size,
-                       int(np.floor(edges_all.shape[0] * self.val_test_size)))
+                       int(np.floor(edges_all.shape[0] * val_test_size)))
         num_val = max(min_val_test_size,
-                      int(np.floor(edges_all.shape[0] * self.val_test_size)))
+                      int(np.floor(edges_all.shape[0] * val_test_size)))
 
         all_edge_idx = list(range(edges_all.shape[0]))
         np.random.shuffle(all_edge_idx)

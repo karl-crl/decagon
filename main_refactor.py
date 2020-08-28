@@ -23,6 +23,9 @@ if __name__ == '__main__':
     parser.add_argument('--cpu', default=False,
                         action='store_true',
                         help='Run on cpu instead of gpu')
+    parser.add_argument('--upload_saved', default=False,
+                        action='store_true',
+                        help='Whether to use saved model or new')
 
     args = parser.parse_args()
 
@@ -52,7 +55,8 @@ if __name__ == '__main__':
                 val_test_size=val_test_size,
                 batch_size=PARAMS['batch_size'], num_epochs=PARAMS['epoch'],
                 dropout=PARAMS['dropout'], max_margin=PARAMS['max_margin'],
-                print_progress_every=150, log=args.log, on_cpu=args.cpu)
+                print_progress_every=150, log=args.log, on_cpu=args.cpu,
+                upload_saved=args.upload_saved)
     else:
         run = RunDecagonReal(combo_path=f'{INPUT_FILE_PATH}/bio-decagon-combo.csv',
                              ppi_path=f'{INPUT_FILE_PATH}/bio-decagon-ppi.csv',
@@ -64,6 +68,6 @@ if __name__ == '__main__':
                 num_epochs=PARAMS['epoch'], dropout=PARAMS['dropout'],
                 max_margin=PARAMS['max_margin'],
                 print_progress_every=150, adj_path='data/adj/real',
-                log=args.log, on_cpu=args.cpu)
+                log=args.log, on_cpu=args.cpu, upload_saved=args.upload_saved)
     if args.log:
         neptune.stop()

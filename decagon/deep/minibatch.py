@@ -524,6 +524,7 @@ class EdgeMinibatchIterator(object):
         -------
 
         """
+        
         if val_test_size >= 0.5:
             print('proportion of validation and test data should be < 0.5')
             raise ValueError
@@ -598,6 +599,7 @@ class EdgeMinibatchIterator(object):
                         ) -> Dict[str, Any]:
         """
         Create feed dict for minibatch.
+
         Parameters
         ----------
         batch_edges : np.array

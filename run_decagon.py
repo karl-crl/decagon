@@ -401,12 +401,16 @@ class RunDecagon(metaclass=ABCMeta):
 
     def run(self, adj_path: str, path_to_split: str, val_test_size: float,
             batch_size: int, num_epochs: int, dropout: float, max_margin: float,
-            print_progress_every: int, log: bool, on_cpu: bool, seed: int = 123) -> NoReturn:
+            print_progress_every: int, log: bool, on_cpu: bool, seed: int = 123,
+            upload_saved: bool = False) -> NoReturn:
         """
         Run Decagon.
 
         Parameters
         ----------
+        upload_saved : bool
+            Default = False
+            Whether to log or not.
         adj_path : str
             path for saving/loading adjacency matrices.
         path_to_split : str

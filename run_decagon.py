@@ -478,6 +478,7 @@ class RunDecagon(metaclass=ABCMeta):
             saver.restore(sess, MODEL_SAVE_PATH)
 
         dir_to_save_model = f"{MODEL_SAVE_PATH}/model_{datetime.now().isoformat()[:-7]}"
+        os.makedirs(dir_to_save_model, exist_ok=True)
         for epoch in range(num_epochs):
             self._run_epoch(sess, dropout, print_progress_every, epoch, log)
             saver.save(sess, f"{dir_to_save_model}/epoch_{epoch}.ckpt")

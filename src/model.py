@@ -1,15 +1,14 @@
 import torch
 import torch.nn as nn
 from .rgcn import RelGraphConvLayer
-from .decoders import HeteroDotProductPredictor
+from .decoders import HeteroMLPPredictor
 from typing import Dict, Tuple
 import dgl
 
-# Toy model. Need to add good decoders
-# TODO: Change decoders
+
+# Toy model.
 # TODO: Add minibatch (blocks).
 class Model(nn.Module):
-
     def __init__(self, node2in_feat_dim: Dict[str, int],
                  hidden_dim: int, embed_dim: int,
                  rel2nodes: Dict[str, Tuple[str, str]],
@@ -31,7 +30,7 @@ class Model(nn.Module):
             bias=bias,
             dropout=dropout,
             activation=None)
-        self.pred = HeteroDotProductPredictor()
+        self.pred = HeteroMLPPredictor(embed_dim, list(rel2nodes.keys()))
 
     def forward(self, g: dgl.heterograph, neg_g: dgl.heterograph,
                 node2features: Dict[str, torch.Tensor], etype: str):

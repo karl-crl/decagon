@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import dgl
 import dgl.nn as dglnn
+from dgl.heterograph import DGLHeteroGraph
 from typing import Dict, Tuple, Callable, Optional
 
 
@@ -81,7 +82,7 @@ class RelGraphConvLayer(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, g: dgl.heterograph, inputs: Dict[str, torch.Tensor]
+    def forward(self, g: DGLHeteroGraph, node2features: Dict[str, torch.Tensor]
                 ) -> Dict[str, torch.Tensor]:
         """
         Forward computation.
@@ -89,8 +90,8 @@ class RelGraphConvLayer(nn.Module):
         Parameters
         ----------
         g : DGLHeteroGraph
-            Input graph.
-        inputs : dict[str, torch.Tensor]
+            Input graph. It can be a block.
+        node2features : dict[str, torch.Tensor]
             Node features for each node type.
 
         Returns
@@ -100,17 +101,7 @@ class RelGraphConvLayer(nn.Module):
         """
         g = g.local_var()
         wdict = {rel: {'weight': self.weight[rel]} for rel in self.rel_names}
-
-        # We usually learn model on batches = subgraphs = blocks
-        # TODO: check it.
-        if g.is_block:
-            inputs_src = inputs
-            inputs_dst = {
-                k: v[:g.number_of_dst_nodes(k)] for k, v in inputs.items()}
-        else:
-            inputs_src = inputs_dst = inputs
-
-        hs = self.conv(g, inputs, mod_kwargs=wdict)
+        hs = self.conv(g, node2features, mod_kwargs=wdict)
 
         def _apply(ntype, h):
             if self.bias:
